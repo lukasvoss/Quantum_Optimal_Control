@@ -1,0 +1,5 @@
+{
+    "python.analysis.extraPaths": [
+        "./00_AWS/02_gate_level"
+    ]
+}
