@@ -56,6 +56,8 @@ from tensorflow.keras.layers import Input, Dense
 
 import optuna
 
+from qiskit_braket_provider import BraketLocalBackend, AWSBraketBackend
+
 from basis_gate_library import EchoedCrossResonance, FixedFrequencyTransmon
 from custom_jax_sim.jax_solver import PauliToQuditOperator
 from qconfig import QiskitConfig
@@ -581,6 +583,13 @@ def retrieve_primitives(
                 print("3")
                 _, _ = perform_standard_calibrations(backend, calibration_files)
 
+        elif isinstance(backend, (BraketLocalBackend, AWSBraketBackend)):
+            # Can be used for the SV1 simulator of AWS Braket
+            if abstraction_level != "circuit":
+                raise ValueError("Statevector simulation only works at circuit level")
+            estimator = Estimator(options={"initial_layout": layout})
+            sampler = Sampler(options={"initial_layout": layout})
+
         else:
             raise TypeError("Backend not recognized")
     return estimator, sampler
@@ -895,29 +904,36 @@ def load_agent_from_yaml_file(file_path: str):
         config = yaml.safe_load(f)
 
     ppo_params = {
-        "n_steps": config["AGENT"]["NUM_UPDATES"],
-        "run_name": config["AGENT"]["RUN_NAME"],
-        "n_updates": config["AGENT"]["NUM_UPDATES"],
-        "n_epochs": config["AGENT"]["N_EPOCHS"],
-        "batch_size": config["AGENT"]["MINIBATCH_SIZE"],
-        "learning_rate": config["AGENT"]["LR_ACTOR"],
+        # "n_steps": config["AGENT"]["NUM_UPDATES"],
+        "RUN_NAME": config["AGENT"]["RUN_NAME"],
+        "NUM_UPDATES": config["AGENT"]["NUM_UPDATES"],
+        "N_EPOCHS": config["AGENT"]["N_EPOCHS"],
+        "MINIBATCH_SIZE": config["AGENT"]["MINIBATCH_SIZE"],
+        "LR": config["AGENT"]["LR_ACTOR"],
         # "lr_critic": config["AGENT"]["LR_CRITIC"],
-        "gamma": config["AGENT"]["GAMMA"],
-        "gae_lambda": config["AGENT"]["GAE_LAMBDA"],
-        "ent_coef": config["AGENT"]["ENT_COEF"],
-        "vf_coef": config["AGENT"]["V_COEF"],
-        "max_grad_norm": config["AGENT"]["GRADIENT_CLIP"],
-        "clip_range_vf": config["AGENT"]["CLIP_VALUE_LOSS"],
-        "clip_range": config["AGENT"]["CLIP_RATIO"],
+        "GAMMA": config["AGENT"]["GAMMA"],
+        "GAE_LAMBDA": config["AGENT"]["GAE_LAMBDA"],
+        "ENT_COEF": config["AGENT"]["ENT_COEF"],
+        "V_COEF": config["AGENT"]["V_COEF"],
+        "GRADIENT_CLIP": config["AGENT"]["GRADIENT_CLIP"],
+        "CLIP_VALUE_LOSS": config["AGENT"]["CLIP_VALUE_LOSS"],
+        "CLIP_VALUE_COEF": config["AGENT"]["CLIP_VALUE_COEF"],
+        "CLIP_RATIO": config["AGENT"]["CLIP_RATIO"],
     }
     network_params = {
-        "optimizer": config["NETWORK"]["OPTIMIZER"],
-        "n_units": config["NETWORK"]["N_UNITS"],
-        "activation": config["NETWORK"]["ACTIVATION"],
-        "include_critic": config["NETWORK"]["INCLUDE_CRITIC"],
-        "normalize_advantage": config["NETWORK"]["NORMALIZE_ADVANTAGE"],
-        "checkpoint_dir": config["NETWORK"]["CHKPT_DIR"],
+        "OPTIMIZER": config["NETWORK"]["OPTIMIZER"],
+        "N_UNITS": config["NETWORK"]["N_UNITS"],
+        "ACTIVATION": config["NETWORK"]["ACTIVATION"],
+        "INCLUDE_CRITIC": config["NETWORK"]["INCLUDE_CRITIC"],
+        "NORMALIZE_ADVANTAGE": config["NETWORK"]["NORMALIZE_ADVANTAGE"],
+        "CHKPT_DIR": config["NETWORK"]["CHKPT_DIR"],
     }
+    return ppo_params, network_params
+
+
+def load_hpo_config_from_yaml_file(file_path: str):
+    with open(file_path, "r") as f:
+        config = yaml.safe_load(f)
 
     hpo_params = {
         "num_trials": config["HPO"]["NUM_TRIALS"],
@@ -935,11 +951,10 @@ def load_agent_from_yaml_file(file_path: str):
         "clip_value_coef": config["HPO"]["CLIP_VALUE_COEF"],
         "clip_ratio": config["HPO"]["CLIP_RATIO"],
     }
+    return hpo_params
 
-    return ppo_params, network_params, hpo_params
 
-
-def create_agent_config(trial: optuna.trial.Trial, hpo_config: dict, network_config: dict, ppo_params: dict):
+def create_agent_config_hpo(trial: optuna.trial.Trial, hpo_config: dict, network_config: dict, ppo_params: dict):
     agent_config = {
         'N_UPDATES': trial.suggest_int('N_UPDATES', hpo_config['n_updates'][0], hpo_config['n_updates'][1]),
         'N_EPOCHS': trial.suggest_int('N_EPOCHS', hpo_config['n_epochs'][0], hpo_config['n_epochs'][1]),
@@ -962,12 +977,12 @@ def create_agent_config(trial: optuna.trial.Trial, hpo_config: dict, network_con
     agent_config['CLIP_VALUE_LOSS'] = hpo_config['clip_value_loss']
 
     # Add network-specific hyperparameters that are not part of HPO scope
-    agent_config['OPTIMIZER'] = network_config['optimizer']
-    agent_config['N_UNITS'] = network_config['n_units']
-    agent_config['ACTIVATION'] = network_config['activation']
-    agent_config['INCLUDE_CRITIC'] = network_config['include_critic']
-    agent_config['NORMALIZE_ADVANTAGE'] = network_config['normalize_advantage']
-    agent_config['RUN_NAME'] = ppo_params['run_name']
+    agent_config['OPTIMIZER'] = network_config['OPTIMIZER']
+    agent_config['N_UNITS'] = network_config['N_UNITS']
+    agent_config['ACTIVATION'] = network_config['ACTIVATION']
+    agent_config['INCLUDE_CRITIC'] = network_config['INCLUDE_CRITIC']
+    agent_config['NORMALIZE_ADVANTAGE'] = network_config['NORMALIZE_ADVANTAGE']
+    agent_config['RUN_NAME'] = ppo_params['RUN_NAME']
 
     return agent_config, hyperparams
 

@@ -26,6 +26,8 @@ from quantumenvironment import QuantumEnvironment
 from context_aware_quantum_environment import ContextAwareQuantumEnvironment
 from template_configurations.qiskit.dynamics_config import dynamics_backend
 
+from qiskit_braket_provider import AWSBraketProvider
+
 current_dir = os.path.dirname(os.path.realpath(__file__))
 config_file_name = "q_env_gate_config.yml"
 config_file_address = os.path.join(current_dir, config_file_name)
@@ -120,6 +122,7 @@ def get_backend(
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
             backend = FakeJakartaV2()
+            backend = AWSBraketProvider().get_backend('SV1')
 
     if backend is None:
         Warning("No backend was provided, Statevector simulation will be used")

@@ -4,8 +4,10 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "True"
 import time
 import pickle
 import optuna
+from typing import Optional
+from gymnasium.wrappers import RescaleAction
 from quantumenvironment import QuantumEnvironment
-from helper_functions import load_agent_from_yaml_file, create_agent_config
+from helper_functions import load_agent_from_yaml_file, create_agent_config_hpo, load_hpo_config_from_yaml_file
 from ppo import make_train_ppo
 from qconfig import QEnvConfig
 
@@ -18,17 +20,57 @@ logging.basicConfig(
 )
 
 class HyperparameterOptimizer:
+    """
+    A class for optimizing the hyperparameters of a Proximal Policy Optimization (PPO) agent 
+    in a quantum environment using Optuna.
+
+    The class is responsible for initializing the quantum environment and the PPO agent, 
+    setting up hyperparameter optimization trials, and saving the best configurations 
+    discovered during optimization.
+
+    Attributes:
+        gate_q_env_config (QEnvConfig): Configuration for the quantum environment.
+        q_env (QuantumEnvironment): The quantum environment instance.
+        ppo_params (dict): Parameters for the PPO agent.
+        network_config (dict): Configuration for the neural network used in the PPO agent.
+        hpo_config (dict): Configuration for hyperparameter optimization.
+        save_results_path (str): Path to save the best configuration and results.
+        log_progress (bool): Flag to indicate whether to log the progress of hyperparameter optimization.
+        rescalse_action (dict): Dictionary containing information about whether and how to apply the RescaleAction wrapper.
+        num_hpo_trials (int): The number of trials to run for hyperparameter optimization.
+        best_trial (optuna.trial._frozen.FrozenTrial, optional): The best trial found during optimization.
+
+    Methods:
+        optimize_hyperparameters(): Runs the hyperparameter optimization process.
+        best_hpo_configuration: Returns the best hyperparameter configuration and its performance metric.
+        target_gate: Returns information about the target gate and register from the quantum environment.
+    
+    Example:
+    >>> optimizer = HyperparameterOptimizer(
+            q_env_config=config,
+            path_agent_config="path/to/agent/config.yaml",
+            path_hpo_config="path/to/hpo/config.yaml",
+            save_results_path="path/to/save/results",
+            log_progress=True
+        )
+    >>> optimizer.optimize_hyperparameters()
+    
+    """
     def __init__(
             self, 
-            gate_q_env_config: QEnvConfig, 
+            q_env_config: QEnvConfig, 
             path_agent_config: str, 
+            path_hpo_config: str,
             save_results_path: str, 
-            log_progress: bool = True,
-            num_hpo_trials: int = None,
+            log_progress: Optional[bool] = True,
+            rescale_action: Optional[dict] = None,
+            num_hpo_trials: Optional[int] = None,
         ):
-        self.gate_q_env_config = gate_q_env_config
-        self.q_env = QuantumEnvironment(self.gate_q_env_config)
-        self.ppo_params, self.network_config, self.hpo_config = load_agent_from_yaml_file(path_agent_config)
+        self.q_env_config = q_env_config
+        self.q_env = QuantumEnvironment(self.q_env_config)
+        self.rescale_action = rescale_action
+        self.ppo_params, self.network_config = load_agent_from_yaml_file(path_agent_config)
+        self.hpo_config = load_hpo_config_from_yaml_file(path_hpo_config)
         self.save_results_path = save_results_path
         self.log_progress = log_progress
 
@@ -42,9 +84,14 @@ class HyperparameterOptimizer:
         
     def _objective(self, trial):
         # Fetch hyperparameters from the trial object
-        self.agent_config, self.hyperparams = create_agent_config(trial, self.hpo_config, self.network_config, self.ppo_params)
+        self.agent_config, self.hyperparams = create_agent_config_hpo(trial, self.hpo_config, self.network_config, self.ppo_params)
 
-        self.q_env = QuantumEnvironment(self.gate_q_env_config)
+        # Optionally apply RescaleAction wrapper
+        if self.rescale_action is not None and self.rescale_action['apply_rescaling']:
+            self.q_env_config = RescaleAction(self.q_env_config, min_action=self.rescale_action['min_action'], max_action=self.rescale_action['max_action'])
+        
+        self.q_env = QuantumEnvironment(self.q_env_config)
+        
         # Overwrite the batch_size of the environment with the one from the agent_config
         self.q_env.batch_size = self.agent_config['BATCHSIZE']
 
@@ -118,6 +165,6 @@ class HyperparameterOptimizer:
     @property
     def target_gate(self):
         return {
-            'target_gate': self.gate_q_env_config.target['gate'],
-            'target_register': self.gate_q_env_config.target['register']
+            'target_gate': self.q_env_config.target['gate'],
+            'target_register': self.q_env_config.target['register']
         }
