@@ -127,3 +127,6 @@ dmypy.json
 *.pkl
 *.pickle
 events.out.tfevents*
+
+# AWS model output
+*.gz
