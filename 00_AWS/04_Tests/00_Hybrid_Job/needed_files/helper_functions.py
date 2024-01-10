@@ -58,10 +58,11 @@ import optuna
 
 from qiskit_braket_provider import BraketLocalBackend, AWSBraketBackend
 
-from basis_gate_library import EchoedCrossResonance, FixedFrequencyTransmon
-from custom_jax_sim.jax_solver import PauliToQuditOperator
-from qconfig import QiskitConfig
-from custom_jax_sim import JaxSolver, DynamicsBackendEstimator
+from needed_files.basis_gate_library import EchoedCrossResonance, FixedFrequencyTransmon
+from needed_files.jax_solver import PauliToQuditOperator
+from needed_files.qconfig import QiskitConfig
+from needed_files.jax_solver import JaxSolver
+from needed_files.dynamicsbackend_estimator import DynamicsBackendEstimator
 
 # from qiskit_experiments.calibration_management.basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
 

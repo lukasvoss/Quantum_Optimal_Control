@@ -6,8 +6,8 @@ import sys
 import yaml
 from gymnasium.spaces import Box
 import numpy as np
-from basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
-from helper_functions import (
+from needed_files.basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
+from needed_files.helper_functions import (
     get_ecr_params,
     load_q_env_from_yaml_file,
     perform_standard_calibrations,
@@ -15,22 +15,24 @@ from helper_functions import (
 from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit import ParameterVector, Gate
 from qiskit_dynamics import Solver, DynamicsBackend
-from custom_jax_sim.jax_solver import JaxSolver
+from needed_files.jax_solver import JaxSolver
 from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBackend
 from qiskit.providers.fake_provider import FakeProvider
 from qiskit.providers import BackendV1, BackendV2
 from qiskit.providers.fake_provider import FakeJakartaV2
 from qiskit_experiments.calibration_management import Calibrations
-from qconfig import QiskitConfig, QEnvConfig
-from quantumenvironment import QuantumEnvironment
-from context_aware_quantum_environment import ContextAwareQuantumEnvironment
-from template_configurations.qiskit.dynamics_config import dynamics_backend
+
+from needed_files.qconfig import QiskitConfig, QEnvConfig
+from needed_files.quantumenvironment import QuantumEnvironment
+from needed_files.context_aware_quantum_environment import ContextAwareQuantumEnvironment
+from needed_files.dynamics_config import dynamics_backend
 
 from qiskit_braket_provider import AWSBraketProvider
 
-current_dir = os.path.dirname(os.path.realpath(__file__))
-config_file_name = "q_env_gate_config.yml"
-config_file_address = os.path.join(current_dir, config_file_name)
+current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+folder_name = 'config_yamls'
+config_file_name = 'q_env_gate_config.yaml'
+config_file_address = os.path.join(current_dir, folder_name, config_file_name)
 
 
 def apply_parametrized_circuit(

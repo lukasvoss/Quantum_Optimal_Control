@@ -55,8 +55,8 @@ from qiskit_ibm_runtime import Estimator as RuntimeEstimator
 # Tensorflow modules
 from tensorflow_probability.python.distributions import Categorical
 
-from custom_jax_sim import JaxSolver
-from helper_functions import (
+from needed_files.jax_solver import JaxSolver
+from needed_files.helper_functions import (
     retrieve_primitives,
     Estimator_type,
     Sampler_type,
@@ -65,7 +65,7 @@ from helper_functions import (
     gate_fidelity_from_process_tomography,
     qubit_projection,
 )
-from qconfig import QiskitConfig, QEnvConfig, QuaConfig
+from needed_files.qconfig import QiskitConfig, QEnvConfig, QuaConfig
 
 
 # QUA imports
