@@ -160,3 +160,6 @@ QuantumEnvironment.check_on_exp = (
 ) = check_on_exp
 q_env_config = QEnvConfig(backend_config=backend_config, **params)
 circuit_context = get_circuit_context(backend)
+
+def get_q_env_config():
+    return q_env_config
