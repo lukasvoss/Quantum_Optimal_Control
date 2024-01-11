@@ -6,7 +6,6 @@ from needed_files.quantumenvironment import QuantumEnvironment
 from needed_files.helper_functions import load_agent_from_yaml_file
 from needed_files.ppo import make_train_ppo
 from needed_files.q_env_config import q_env_config as gate_q_env_config
-from needed_files.qenvconfig import QEnvConfiguration
 
 from braket.tracking import Tracker
 from braket.jobs import hybrid_job, save_job_result
