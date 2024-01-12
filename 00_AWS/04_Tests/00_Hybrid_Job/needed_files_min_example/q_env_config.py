@@ -6,26 +6,22 @@ import sys
 import yaml
 from gymnasium.spaces import Box
 import numpy as np
-from needed_files.basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
-from needed_files.helper_functions import (
-    get_ecr_params,
+from needed_files_min_example.helper_functions import (
     load_q_env_from_yaml_file,
     perform_standard_calibrations,
 )
 from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit import ParameterVector, Gate
 from qiskit_dynamics import Solver, DynamicsBackend
-from needed_files.jax_solver import JaxSolver
 from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBackend
 from qiskit.providers.fake_provider import FakeProvider
 from qiskit.providers import BackendV1, BackendV2
 from qiskit.providers.fake_provider import FakeJakartaV2
 from qiskit_experiments.calibration_management import Calibrations
 
-from needed_files.qconfig import QiskitConfig, QEnvConfig
-from needed_files.quantumenvironment import QuantumEnvironment
-from needed_files.context_aware_quantum_environment import ContextAwareQuantumEnvironment
-from needed_files.dynamics_config import dynamics_backend
+from needed_files_min_example.qconfig import QiskitConfig, QEnvConfig
+from needed_files_min_example.quantumenvironment import QuantumEnvironment
+from needed_files_min_example.dynamics_config import dynamics_backend
 
 from qiskit_braket_provider import AWSBraketProvider
 
@@ -124,7 +120,9 @@ def get_backend(
         else:
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
-            backend = FakeJakartaV2()
+            # backend = FakeJakartaV2()
+            
+            # Use AWS Braket Qiskit Provider SV1 backend
             backend = AWSBraketProvider().get_backend('SV1')
 
     if backend is None:
@@ -155,8 +153,6 @@ backend_config = QiskitConfig(
     else None,
     parametrized_circuit_kwargs={"target": params["target"], "backend": backend},
 )
-QuantumEnvironment.check_on_exp = (
-    ContextAwareQuantumEnvironment.check_on_exp
-) = check_on_exp
+QuantumEnvironment.check_on_exp = check_on_exp
 q_env_config = QEnvConfig(backend_config=backend_config, **params)
 circuit_context = get_circuit_context(backend)

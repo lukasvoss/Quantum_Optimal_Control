@@ -130,3 +130,5 @@ events.out.tfevents*
 
 # AWS model output
 *.gz
+
+*.DS_Store
