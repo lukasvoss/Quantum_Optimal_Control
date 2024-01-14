@@ -6,10 +6,7 @@ import sys
 import yaml
 from gymnasium.spaces import Box
 import numpy as np
-from needed_files_min_example.helper_functions import (
-    load_q_env_from_yaml_file,
-    perform_standard_calibrations,
-)
+
 from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit import ParameterVector, Gate
 from qiskit_dynamics import Solver, DynamicsBackend
@@ -21,7 +18,7 @@ from qiskit_experiments.calibration_management import Calibrations
 
 from needed_files_min_example.qconfig import QiskitConfig, QEnvConfig
 from needed_files_min_example.quantumenvironment import QuantumEnvironment
-from needed_files_min_example.dynamics_config import dynamics_backend
+from needed_files_min_example.helper_functions import load_q_env_from_yaml_file
 
 from qiskit_braket_provider import AWSBraketProvider
 
@@ -106,24 +103,24 @@ def get_backend(
                 backend_name = "fake_jakarta"
             backend = FakeProvider().get_backend(backend_name)
 
-        if use_dynamics:
-            if backend is not None:
-                backend = DynamicsBackend.from_backend(
-                    backend, subsystem_list=list(physical_qubits)
-                )
-                _, _ = perform_standard_calibrations(backend)
+    #     if use_dynamics:
+    #         if backend is not None:
+    #             backend = DynamicsBackend.from_backend(
+    #                 backend, subsystem_list=list(physical_qubits)
+    #             )
+    #             _, _ = perform_standard_calibrations(backend)
+    # else:
+    #     # Propose here your custom backend, for Dynamics we take for instance the configuration from dynamics_config.py
+    #     if use_dynamics is not None and use_dynamics:
+    #         backend = dynamics_backend
+    #         _, _ = perform_standard_calibrations(backend)
     else:
-        # Propose here your custom backend, for Dynamics we take for instance the configuration from dynamics_config.py
-        if use_dynamics is not None and use_dynamics:
-            backend = dynamics_backend
-            _, _ = perform_standard_calibrations(backend)
-        else:
-            # TODO: Add here your custom backend
-            # For now use FakeJakartaV2 as a safe working custom backend
-            # backend = FakeJakartaV2()
-            
-            # Use AWS Braket Qiskit Provider SV1 backend
-            backend = AWSBraketProvider().get_backend('SV1')
+        # TODO: Add here your custom backend
+        # For now use FakeJakartaV2 as a safe working custom backend
+        # backend = FakeJakartaV2()
+        
+        # Use AWS Braket Qiskit Provider SV1 backend
+        backend = AWSBraketProvider().get_backend('SV1')
 
     if backend is None:
         Warning("No backend was provided, Statevector simulation will be used")

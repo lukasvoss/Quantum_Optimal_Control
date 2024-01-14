@@ -55,23 +55,17 @@ from qiskit_ibm_runtime import Estimator as RuntimeEstimator
 # Tensorflow modules
 from tensorflow_probability.python.distributions import Categorical
 
-from needed_files_min_example.jax_solver import JaxSolver
 from needed_files_min_example.helper_functions import (
     retrieve_primitives,
     Estimator_type,
     Sampler_type,
-    handle_session,
+    # handle_session,
     state_fidelity_from_state_tomography,
     gate_fidelity_from_process_tomography,
-    qubit_projection,
 )
 from needed_files_min_example.qconfig import QiskitConfig, QEnvConfig, QuaConfig
 
 
-# QUA imports
-# from qualang_tools.bakery.bakery import baking
-# from qm.qua import *
-# from qm.QuantumMachinesManager import QuantumMachinesManager
 
 
 def _calculate_chi_target_state(target_state: Dict, n_qubits: int):
@@ -469,9 +463,9 @@ class QuantumEnvironment(Env):
             print("Finished benchmarking")
 
         try:
-            handle_session(
-                qc, input_state_circ, self.estimator, self.backend, self._session_counts
-            )
+            # handle_session(
+            #     qc, input_state_circ, self.estimator, self.backend, self._session_counts
+            # )
             # Append input state prep circuit to the custom circuit with front composition
             full_circ = qc.compose(input_state_circ, inplace=False, front=True)
             print(observables)
@@ -580,56 +574,6 @@ class QuantumEnvironment(Env):
                     self.avg_fidelity_history.append(
                         avg_fidelity
                     )  # Avg gate fidelity over the action batch
-
-            elif self.abstraction_level == "pulse":
-                # Pulse simulation
-                if isinstance(self.backend, DynamicsBackend) and isinstance(
-                        self.backend.options.solver, JaxSolver
-                ):
-                    # Jax compatible pulse simulation
-
-                    unitaries = np.array(self.backend.options.solver.unitary_solve(params))[
-                                :, 1, :, :
-                                ]
-
-                    qubitized_unitaries = [
-                        qubit_projection(u, self.backend.options.subsystem_dims)
-                        for u in unitaries
-                    ]
-
-                    if self.target_type == "state":
-                        density_matrix = DensityMatrix(
-                            np.mean(
-                                [
-                                    Statevector.from_int(0, dims=self._d).evolve(
-                                        unitary
-                                    )
-                                    for unitary in qubitized_unitaries
-                                ],
-                                axis=0,
-                            )
-                        )
-                        self.state_fidelity_history.append(
-                            state_fidelity(self.target["dm"], density_matrix)
-                        )
-                    else:  # Gate calibration task
-                        gate = Operator(
-                            transpile(self.baseline_truncations[0], self.backend)
-                        )
-                        self.avg_fidelity_history.append(
-                            np.mean(
-                                [
-                                    average_gate_fidelity(unitary, gate)
-                                    for unitary in qubitized_unitaries
-                                ]
-                            )
-                        )
-                    self.built_unitaries.append(unitaries)
-                else:
-                    raise NotImplementedError(
-                        "Pulse simulation not yet implemented for this backend"
-                    )
-            print("Finished simulation benchmark")
 
     def retrieve_observables(self, target_state, qc):
         # Direct fidelity estimation protocol  (https://doi.org/10.1103/PhysRevLett.106.230501)
