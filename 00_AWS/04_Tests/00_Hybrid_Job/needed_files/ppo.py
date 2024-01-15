@@ -16,6 +16,8 @@ from torch.distributions import Normal
 from needed_files.agent import ActorNetwork, CriticNetwork, Agent
 from needed_files.quantumenvironment import QuantumEnvironment
 
+from braket.jobs.metrics import log_metric
+
 import logging
 logging.basicConfig(
     level=logging.WARNING,
@@ -336,6 +338,12 @@ def make_train_ppo(
                 writer.add_scalar("losses/explained_variance", explained_var, global_step)
 
                 avg_return.append(np.mean(env.reward_history, axis=1)[-1])
+                # Log the reward to the AWS Braket Hybrid Job console
+                log_metric(
+                    metric_name='Reward',
+                    value=np.mean(env.reward_history, axis=1)[-1],
+                    iteration_number=ii,
+                )
                 print('Fidelity History:', env.avg_fidelity_history)
 
             env.close()

@@ -50,7 +50,7 @@ def calibrate_gate():
             braket_task_costs.qpu_tasks_cost() + braket_task_costs.simulator_tasks_cost()
         )
     save_job_result({
-        f"training_results_{num_total_updates}_updates": training_results
+        "final_action_vector": training_results['action_vector'].tolist(),
     })
     
     print("Job completed!!!!!")
