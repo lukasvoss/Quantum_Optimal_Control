@@ -29,10 +29,9 @@ from needed_files.dynamics_config import dynamics_backend
 
 from qiskit_braket_provider import AWSBraketProvider
 
-current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-folder_name = 'config_yamls'
+# Get the config file from the environment variable of the AWS Braket Hybrid Job
 config_file_name = 'q_env_gate_config.yaml'
-config_file_address = os.path.join(current_dir, folder_name, config_file_name)
+config_file_address = f'{os.environ["AMZN_BRAKET_INPUT_DIR"]}/q-env-config/{config_file_name}'
 
 
 def apply_parametrized_circuit(
