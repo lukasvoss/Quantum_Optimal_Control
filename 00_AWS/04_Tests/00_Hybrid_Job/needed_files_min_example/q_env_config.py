@@ -2,14 +2,10 @@ from __future__ import annotations
 
 from typing import Optional, Dict
 import os
-import sys
-import yaml
-from gymnasium.spaces import Box
 import numpy as np
 
 from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit import ParameterVector, Gate
-from qiskit_dynamics import Solver, DynamicsBackend
 from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBackend
 from qiskit.providers.fake_provider import FakeProvider
 from qiskit.providers import BackendV1, BackendV2
@@ -25,7 +21,7 @@ from qiskit_braket_provider import AWSBraketProvider
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 folder_name = 'config_yamls'
 config_file_name = 'q_env_gate_config.yaml'
-config_file_address = os.path.join(current_dir, folder_name, config_file_name)
+# config_file_address = os.path.join(current_dir, folder_name, config_file_name)
 
 
 def apply_parametrized_circuit(
@@ -138,18 +134,18 @@ def get_circuit_context(backend: BackendV1 | BackendV2):
 
 
 # Do not touch part below, just retrieve in your notebook training_config and circuit_context
-(params, backend_params, estimator_options, check_on_exp) = load_q_env_from_yaml_file(
-    config_file_address
-)
-backend = get_backend(**backend_params)
-backend_config = QiskitConfig(
-    apply_parametrized_circuit,
-    backend,
-    estimator_options=estimator_options
-    if isinstance(backend, RuntimeBackend)
-    else None,
-    parametrized_circuit_kwargs={"target": params["target"], "backend": backend},
-)
-QuantumEnvironment.check_on_exp = check_on_exp
-q_env_config = QEnvConfig(backend_config=backend_config, **params)
-circuit_context = get_circuit_context(backend)
+# (params, backend_params, estimator_options, check_on_exp) = load_q_env_from_yaml_file(
+#     config_file_address
+# )
+# backend = get_backend(**backend_params)
+# backend_config = QiskitConfig(
+#     apply_parametrized_circuit,
+#     backend,
+#     estimator_options=estimator_options
+#     if isinstance(backend, RuntimeBackend)
+#     else None,
+#     parametrized_circuit_kwargs={"target": params["target"], "backend": backend},
+# )
+# QuantumEnvironment.check_on_exp = check_on_exp
+# q_env_config = QEnvConfig(backend_config=backend_config, **params)
+# circuit_context = get_circuit_context(backend)
