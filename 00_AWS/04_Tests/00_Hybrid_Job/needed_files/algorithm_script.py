@@ -49,8 +49,10 @@ def calibrate_gate():
     training_results['estimated cost'] = float(
             braket_task_costs.qpu_tasks_cost() + braket_task_costs.simulator_tasks_cost()
         )
+    if not isinstance(training_results['action_vector'], list):
+        training_results['action_vector'] = training_results['action_vector'].tolist()
     save_job_result({
-        "final_action_vector": training_results['action_vector'].tolist(),
+        "final_action_vector": training_results['action_vector'],
     })
     
     print("Job completed!!!!!")

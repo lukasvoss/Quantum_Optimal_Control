@@ -338,12 +338,13 @@ def make_train_ppo(
                 writer.add_scalar("losses/explained_variance", explained_var, global_step)
 
                 avg_return.append(np.mean(env.reward_history, axis=1)[-1])
-                # Log the reward to the AWS Braket Hybrid Job console
-                log_metric(
-                    metric_name='Reward',
-                    value=np.mean(env.reward_history, axis=1)[-1],
-                    iteration_number=ii,
-                )
+                # Log the Fidelity to the AWS Braket Hybrid Job console
+                if ii > 1:
+                    log_metric(
+                        metric_name='Fidelity',
+                        value=env.avg_fidelity_history[-1],
+                        iteration_number=ii,
+                    )
                 print('Fidelity History:', env.avg_fidelity_history)
 
             env.close()
