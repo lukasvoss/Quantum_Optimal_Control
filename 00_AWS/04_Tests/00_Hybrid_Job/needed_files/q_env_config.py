@@ -15,7 +15,6 @@ from needed_files.helper_functions import (
 from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
 from qiskit.circuit import ParameterVector, Gate
 from qiskit_dynamics import Solver, DynamicsBackend
-from needed_files.jax_solver import JaxSolver
 from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBackend
 from qiskit.providers.fake_provider import FakeProvider
 from qiskit.providers import BackendV1, BackendV2
@@ -25,7 +24,7 @@ from qiskit_experiments.calibration_management import Calibrations
 from needed_files.qconfig import QiskitConfig, QEnvConfig
 from needed_files.quantumenvironment import QuantumEnvironment
 from needed_files.context_aware_quantum_environment import ContextAwareQuantumEnvironment
-from needed_files.dynamics_config import dynamics_backend
+from needed_files.dynamics_config import jax_backend
 
 from qiskit_braket_provider import AWSBraketProvider
 
@@ -63,10 +62,11 @@ def apply_parametrized_circuit(
         optimal_params[5] + params[5],
         q_reg[1],
     )
+
     my_qc.rzx(optimal_params[6] + params[6], q_reg[0], q_reg[1])
-    # my_qc.u(2 * np.pi * params[0], 2 *  np.pi *params[1], 2 * np.pi * params[2], 0)
-    # my_qc.u(2 * np.pi * params[3], 2 * np.pi * params[4], 2 * np.pi * params[5], 1)
-    # my_qc.rzx(2 * np.pi * params[6], 0, 1)
+    # my_qc.u(np.pi *params[0], np.pi *params[1], np.pi *params[2], 0)
+    # my_qc.u(np.pi *params[3], np.pi *params[4], np.pi *params[5], 1)
+    # my_qc.rzx(np.pi * params[6], 0, 1)
     qc.append(my_qc.to_instruction(label="custom_cx"), q_reg)
 
 
@@ -115,15 +115,19 @@ def get_backend(
                     backend, subsystem_list=list(physical_qubits)
                 )
                 _, _ = perform_standard_calibrations(backend)
+            else:
+                raise ValueError(
+                    "No backend was found with given name, DynamicsBackend cannot be used"
+                )
     else:
         # Propose here your custom backend, for Dynamics we take for instance the configuration from dynamics_config.py
         if use_dynamics is not None and use_dynamics:
-            backend = dynamics_backend
+            backend = jax_backend
             _, _ = perform_standard_calibrations(backend)
         else:
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
-            backend = FakeJakartaV2()
+            #backend = FakeJakartaV2()
             backend = AWSBraketProvider().get_backend('SV1')
 
     if backend is None:
@@ -131,14 +135,18 @@ def get_backend(
     return backend
 
 
-def get_circuit_context(backend: BackendV1 | BackendV2):
-    circuit = QuantumCircuit(2)
+def get_circuit_context(backend: Optional[BackendV1 | BackendV2]):
+    circuit = QuantumCircuit(5)
     circuit.h(0)
-    circuit.cx(0, 1)
+    for i in range(1, 5):
+        circuit.cx(0, i)
+    circuit.h(0)
 
-    transpiled_circ = transpile(circuit, backend)
-
-    return transpiled_circ
+    if backend is not None:
+        circuit = transpile(circuit, backend)
+    print("Circuit context")
+    print(circuit)
+    return circuit
 
 
 # Do not touch part below, just retrieve in your notebook training_config and circuit_context

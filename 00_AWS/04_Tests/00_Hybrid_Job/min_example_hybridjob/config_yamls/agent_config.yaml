@@ -4,7 +4,6 @@ AGENT:
   N_EPOCHS: 8 # Number of epochs for each policy update
   MINIBATCH_SIZE: 32 # Number of samples per mini-batch
   LR_ACTOR: 0.0005 # Learning rate
-  LR_CRITIC: 0.001 # Learning rate
   GAMMA: 0.99 # Discount factor
   GAE_LAMBDA: 0.95 # Lambda coefficient for Generalized Advantage Estimation
   ENT_COEF: 0.0 # Entropy coefficient

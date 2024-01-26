@@ -20,7 +20,7 @@ RUNTIME_OPTIONS: # Relevant only when using the Qiskit runtime service
     log_level: "WARNING"
     job_tags: null
   simulator:
-    seed_simulator: 100
+    seed_simulator: 400
     coupling_map: null
     basis_gates: null
 
@@ -37,14 +37,14 @@ TARGET: # Target Gate configuration
   PHYSICAL_QUBITS: [0, 1]
 
 ENV: # Environment configuration
-  SAMPLING_PAULIS: 200 # Number of Pauli strings to sample
+  SAMPLING_PAULIS: 100 # Number of Pauli strings to sample
   N_SHOTS: 1
   C_FACTOR: 0.25 # Cost factor for the reward function
   N_ACTIONS: 7 # Action vector length
   BATCH_SIZE: 256 # Number of actions to evaluate per policy iteration
   ACTION_SPACE:
-    LOW: [-1., -1., -1., -1., -1., -1., -1.]
-    HIGH: [1., 1., 1., 1., 1., 1., 1.]
+    LOW: [ -3.14, -3.14, -3.14, -3.14, -3.14, -3.14, -3.14 ]
+    HIGH: [ 3.14, 3.14, 3.14, 3.14, 3.14, 3.14, 3.14 ]
   OBSERVATION_SPACE: 1 # Shape of the observation space
   BENCHMARK_CYCLE: 1 # Number of steps between two fidelity benchmarks
   SEED: 100
