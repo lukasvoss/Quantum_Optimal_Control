@@ -2,6 +2,8 @@ import sys
 import os
 import json
 
+from gymnasium.wrappers import RescaleAction, ClipAction
+
 from needed_files.quantumenvironment import QuantumEnvironment
 from needed_files.helper_functions import load_agent_from_yaml_file
 from needed_files.ppo import make_train_ppo
@@ -34,6 +36,8 @@ def calibrate_gate():
     backend = provider.get_backend('SV1')
     
     q_env = QuantumEnvironment(gate_q_env_config)
+    q_env = ClipAction(q_env)
+    q_env = RescaleAction(q_env, min_action=-1.0, max_action=1.0)
     q_env.backend = backend
     
     ppo_agent = make_train_ppo(agent_config, q_env)
