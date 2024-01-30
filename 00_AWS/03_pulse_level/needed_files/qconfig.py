@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, List, Union, Sequence, Any
-from needed_files.agent import Agent, ActorNetwork, CriticNetwork
 
 import torch
 import torch.optim as optim

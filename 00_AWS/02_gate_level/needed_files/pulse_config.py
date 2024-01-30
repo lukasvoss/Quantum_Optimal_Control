@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional, Dict
+from typing import Optional, Sequence, List
 import os
 import yaml
 from gymnasium.spaces import Box
 import numpy as np
 import warnings
-from basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
-from helper_functions import (
+from needed_files.basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
+from needed_files.helper_functions import (
     get_ecr_params,
     get_pulse_params,
     load_q_env_from_yaml_file,
@@ -20,16 +20,17 @@ from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBacken
 from qiskit_ibm_runtime.fake_provider import FakeProvider
 from qiskit.providers import BackendV1, BackendV2
 from qiskit_experiments.calibration_management import Calibrations
-from qconfig import QiskitConfig, QEnvConfig
-from quantumenvironment import QuantumEnvironment
-from context_aware_quantum_environment import ContextAwareQuantumEnvironment
-from dynamics_config import jax_backend
-from template_configurations.qiskit.dynamics_config import dynamics_backend
-from typing import List, Sequence
+
+from needed_files.qconfig import QiskitConfig, QEnvConfig
+from needed_files.quantumenvironment import QuantumEnvironment
+from needed_files.context_aware_quantum_environment import ContextAwareQuantumEnvironment
+from needed_files.dynamics_config import jax_backend, dynamics_backend
+
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
-config_file_name = "q_env_pulse_config.yml"
-config_file_address = os.path.join(current_dir, config_file_name)
+folder_name = "config_yamls"
+config_file_name = "q_env_pulse_config.yaml"
+config_file_address = os.path.join(current_dir, folder_name, config_file_name)
 
 
 def new_params_ecr(
@@ -92,7 +93,7 @@ def new_params_x(
         )
     for i, feature in enumerate(pulse_features):
         if feature != "duration" and feature in available_features:
-            new_params[(feature, qubits, "x")] += params[i]
+            new_params[(feature, qubits, "x")] = params[i] + 0.0
         else:
             new_params[(feature, qubits, "x")] += pulse.builder.seconds_to_samples(
                 duration_window * params[i]
@@ -122,7 +123,7 @@ def custom_schedule(
     # Load here all pulse parameters names that should be tuned during model-free calibration.
     # Here we focus on real time tunable pulse parameters (amp, angle, duration)
     ecr_pulse_features = ["amp", "angle", "tgt_amp", "tgt_angle"]
-    x_pulse_features = ["amp", "angle"]
+    x_pulse_features = ["amp"] # , "angle"]
     # Uncomment line below to include pulse duration as tunable parameter
     # ecr_pulse_features.append("duration")
     # x_pulse_features.append("duration")
