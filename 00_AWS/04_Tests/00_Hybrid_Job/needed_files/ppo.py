@@ -160,8 +160,10 @@ def make_train_ppo(
             values = torch.zeros((num_time_steps, batchsize))
 
             ### Starting Learning ###
-            avg_return = []
-            fidelities = np.zeros(total_updates)
+            avg_reward = []
+            fidelities = []
+            std_actions = []
+            avg_action_history = []
             for ii in tqdm.tqdm(range(1, total_updates + 1)):
                 next_obs, _ = env.reset(seed=seed)
                 num_steps = num_time_steps  # env.episode_length(global_step)
@@ -302,7 +304,8 @@ def make_train_ppo(
                 )
                 if print_debug:
                     print("mean", mean_action[0])
-                    #print("sigma", std_action[0])
+                    print("sigma", std_action[0])
+                    print('Fidelity History:', env.avg_fidelity_history[-1]) if len(env.avg_fidelity_history) > 0 else None
                     print("Average return:", np.mean(env.reward_history, axis=1)[-1])
                     print("DFE Rewards Mean:", np.mean(env.reward_history, axis=1)[-1])
                     print(
@@ -337,24 +340,34 @@ def make_train_ppo(
                 writer.add_scalar("losses/clipfrac", np.mean(clipfracs), global_step)
                 writer.add_scalar("losses/explained_variance", explained_var, global_step)
 
-                avg_return.append(np.mean(env.reward_history, axis=1)[-1])
+                avg_reward.append(np.mean(env.reward_history, axis=1)[-1])
+                std_actions.append(std_action[0].numpy())
+                avg_action_history.append(mean_action[0].numpy())
+
                 # Log the Fidelity to the AWS Braket Hybrid Job console
                 if ii > 1:
+                    fidelities.append(env.avg_fidelity_history[-1])
                     log_metric(
                         metric_name='Fidelity',
-                        value=env.avg_fidelity_history[-1],
+                        value=fidelities[-1],
                         iteration_number=ii,
                     )
-                print('Fidelity History:', env.avg_fidelity_history)
 
             env.close()
             writer.close()
 
+            # Ensure serializablitity of the training results by converting lists of arrays to lists of lists
+            avg_reward = [arr.tolist() for arr in avg_reward]
+            std_actions = [arr.tolist() for arr in std_actions]
+            avg_action_history = [arr.tolist() for arr in avg_action_history]
+
             return {
-                'avg_return': avg_return,
-                # 'fidelities': fidelities,
+                'avg_reward': avg_reward,
+                'std_actions': std_actions,
+                'fidelities': fidelities,
+                'avg_action_history': avg_action_history,
                 # returns the action vector that led to the highest gate fidelity during the training process
-                'action_vector': np.mean(env.action_history[np.argmax(avg_return)], axis=0),
+                'action_vector': np.mean(env.action_history[np.argmax(fidelities)], axis=0),
             }
         except Exception as e:
             logging.error(f'An error occurred during training: {e}')

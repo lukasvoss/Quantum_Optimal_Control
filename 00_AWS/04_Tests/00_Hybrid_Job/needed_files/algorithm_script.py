@@ -55,9 +55,12 @@ def calibrate_gate():
         )
     if not isinstance(training_results['action_vector'], list):
         training_results['action_vector'] = training_results['action_vector'].tolist()
-    save_job_result({
-        "final_action_vector": training_results['action_vector'],
-    })
+    
+    save_job_result(training_results)
+    
+    # save_job_result({
+    #     "final_action_vector": training_results['action_vector'],
+    # })
     
     print("Job completed!!!!!")
 
