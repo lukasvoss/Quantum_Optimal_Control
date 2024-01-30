@@ -58,10 +58,6 @@ def calibrate_gate():
     
     save_job_result(training_results)
     
-    # save_job_result({
-    #     "final_action_vector": training_results['action_vector'],
-    # })
-    
     print("Job completed!!!!!")
 
     return training_results
