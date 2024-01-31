@@ -18,8 +18,6 @@ from braket.aws import AwsSession
 from qiskit_braket_provider import AWSBraketProvider
 
 
-aws_session = AwsSession(default_bucket="amazon-braket-us-west-1-lukasvoss")
-
 
 def calibrate_gate():
     print("Job started!!!!!")
@@ -33,12 +31,17 @@ def calibrate_gate():
     # device = AwsDevice(os.environ["AMZN_BRAKET_DEVICE_ARN"])
 
     provider = AWSBraketProvider()
-    backend = provider.get_backend('SV1')
+    backend = provider.get_backend('Lucy')
     
     q_env = QuantumEnvironment(gate_q_env_config)
     q_env = ClipAction(q_env)
     q_env = RescaleAction(q_env, min_action=-1.0, max_action=1.0)
-    q_env.backend = backend
+    print("Backend BEFORE overwriting: ", backend)
+    # q_env.unwrapped.backend = backend
+    print("Backend AFTER overwriting (q_env.backend): ", q_env.backend)
+    print("Backend AFTER overwriting (q_env.unwrapped.backend): ", q_env.unwrapped.backend)
+    print('Type of q_env.backend: ', type(q_env.backend))
+    print('Type of q_env.unwrapped.backend: ', type(q_env.unwrapped.backend))
     
     ppo_agent = make_train_ppo(agent_config, q_env)
 
@@ -47,7 +50,10 @@ def calibrate_gate():
         hyperparams = json.load(f)
     num_total_updates = int(hyperparams['num_total_updates'])
 
-    training_results = ppo_agent(total_updates=num_total_updates, print_debug=False, num_prints=40)
+    training_results = ppo_agent(total_updates=num_total_updates, 
+                                 print_debug=False, 
+                                 num_prints=40,
+                                 max_cost=33000)
 
     training_results['task_summary'] = braket_task_costs.quantum_tasks_statistics()
     training_results['estimated cost'] = float(

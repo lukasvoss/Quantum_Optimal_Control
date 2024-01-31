@@ -479,7 +479,7 @@ class QuantumEnvironment(Env):
                 circuits=[full_circ] * batch_size,
                 observables=[observables] * batch_size,
                 parameter_values=params,
-                shots=int(np.max(pauli_shots) * self.n_shots),
+                shots=int(self.n_shots),
             )
 
             reward_table = job.result().values
