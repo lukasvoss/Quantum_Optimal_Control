@@ -132,3 +132,6 @@ events.out.tfevents*
 *.gz
 
 *.DS_Store
+
+# Do not track csv files
+*.csv
