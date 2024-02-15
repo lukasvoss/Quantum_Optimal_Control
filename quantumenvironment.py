@@ -38,7 +38,6 @@ from qiskit.transpiler import Layout
 
 # Qiskit dynamics for pulse simulation (& benchmarking)
 from qiskit_dynamics import DynamicsBackend
-from qiskit_ibm_provider import IBMBackend
 
 # Qiskit Experiments for generating reliable baseline for complex gate calibrations / state preparations
 from qiskit_experiments.library.tomography.basis import (
@@ -49,7 +48,6 @@ from qiskit_ibm_runtime import Estimator as RuntimeEstimator
 # Tensorflow modules
 from tensorflow_probability.python.distributions import Categorical
 
-from custom_jax_sim import JaxSolver
 from helper_functions import (
     retrieve_primitives,
     Backend_type,
@@ -106,7 +104,7 @@ def _define_target(target: Dict):
     layout = None
     if tgt_register is not None:
         if isinstance(tgt_register, List):
-            q_register = QuantumRegister(len(tgt_register))
+            q_register = QuantumRegister(len(tgt_register), "tgt")
             layout = Layout(
                 {q_register[i]: tgt_register[i] for i in range(len(tgt_register))}
             )
@@ -142,7 +140,7 @@ def _define_target(target: Dict):
         n_qubits = dm.num_qubits
 
         if q_register is None:
-            q_register = QuantumRegister(n_qubits)
+            q_register = QuantumRegister(n_qubits, "tgt")
 
         if layout is None:
             layout = Layout.generate_trivial_layout(q_register)
@@ -230,6 +228,7 @@ class QiskitBackendInfo:
             self.basis_gates,
             self.instruction_durations,
         ) = retrieve_backend_info(backend, estimator)
+
 
 class QuantumEnvironment(Env):
     metadata = {"render_modes": ["human"]}
@@ -395,7 +394,6 @@ class QuantumEnvironment(Env):
             target_state = input_state["target_state"]  # (Gate |input>=|target>)
         else:  # State preparation task
             target_state = self.target
-            
         self._observables, self._pauli_shots = self.retrieve_observables(
             target_state, self.circuit_truncations[0]
         )
@@ -444,6 +442,7 @@ class QuantumEnvironment(Env):
 
     def check_reward(self):
         if self.training_with_cal:
+            _, _ = self.reset() # Observables and Pauli shots should be accessed since they are not set and perform action will lead to issue
             sample_action = np.zeros(self.action_space.shape)
             batch_action = np.tile(sample_action, (self.batch_size, 1))
             batch_rewards = self.perform_action(batch_action)
@@ -522,7 +521,7 @@ class QuantumEnvironment(Env):
             print("Starting benchmarking...")
             self.store_benchmarks(params)
             print("Finished benchmarking")
-
+        print("Sending Estimator job...")
         try:
             self.estimator = handle_session(
                 self.estimator, self.backend, self._session_counts, qc, input_state_circ
@@ -541,6 +540,8 @@ class QuantumEnvironment(Env):
         except Exception as e:
             self.close()
             raise e
+        print("Finished Estimator job")
+
         if np.mean(reward_table) > self._max_return:
             self._max_return = np.mean(reward_table)
             self._optimal_action = np.mean(params, axis=0)
@@ -635,8 +636,8 @@ class QuantumEnvironment(Env):
 
             elif self.abstraction_level == "pulse":
                 # Pulse simulation
-                if isinstance(self.backend, DynamicsBackend) and isinstance(
-                    self.backend.options.solver, JaxSolver
+                if isinstance(self.backend, DynamicsBackend) and hasattr(
+                    self.backend.options.solver, "unitary_solve"
                 ):
                     # Jax compatible pulse simulation
 
@@ -732,8 +733,8 @@ class QuantumEnvironment(Env):
         # Direct fidelity estimation protocol  (https://doi.org/10.1103/PhysRevLett.106.230501)
         distribution = Categorical(probs=target_state["Chi"] ** 2)
         k_samples = distribution.sample(self.sampling_Pauli_space)
+
         pauli_index, pauli_shots = np.unique(k_samples, return_counts=True)
-        print(pauli_index, pauli_shots)
         reward_factor = np.round(
             [
                 self.c_factor
@@ -786,8 +787,6 @@ class QuantumEnvironment(Env):
     def close(self) -> None:
         if isinstance(self.estimator, RuntimeEstimator):
             self.estimator.session.close()
-        elif isinstance(self.backend, IBMBackend):
-            self.backend.cancel_session()
 
     def __repr__(self):
         string = f"QuantumEnvironment composed of {self._n_qubits} qubits, \n"

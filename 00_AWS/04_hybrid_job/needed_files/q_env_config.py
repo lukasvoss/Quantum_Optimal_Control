@@ -128,7 +128,7 @@ def get_backend(
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
             #backend = FakeJakartaV2()
-            backend = AWSBraketProvider().get_backend('Lucy')
+            backend = AWSBraketProvider().get_backend('SV1')
 
     if backend is None:
         Warning("No backend was provided, Statevector simulation will be used")

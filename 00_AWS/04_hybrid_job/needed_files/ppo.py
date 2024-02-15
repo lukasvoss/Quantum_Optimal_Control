@@ -13,8 +13,9 @@ from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 from torch.distributions import Normal
-from agent import ActorNetwork, CriticNetwork, Agent
-from quantumenvironment import QuantumEnvironment
+
+from needed_files.agent import ActorNetwork, CriticNetwork, Agent
+from needed_files.quantumenvironment import QuantumEnvironment
 
 from braket.tracking import Tracker
 

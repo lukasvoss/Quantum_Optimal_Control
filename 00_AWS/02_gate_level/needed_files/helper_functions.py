@@ -588,8 +588,8 @@ def retrieve_primitives(
             # Can be used for the SV1 simulator of AWS Braket
             if abstraction_level != "circuit":
                 raise ValueError("Statevector simulation only works at circuit level")
-            estimator = Estimator(options={"initial_layout": layout})
-            sampler = Sampler(options={"initial_layout": layout})
+            estimator = BackendEstimator(backend, options={"initial_layout": layout})
+            sampler = BackendSampler(options={"initial_layout": layout})
 
         else:
             raise TypeError("Backend not recognized")

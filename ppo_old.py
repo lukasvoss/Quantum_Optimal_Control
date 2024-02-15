@@ -13,11 +13,10 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import torch.optim as optim
 from torch.distributions import Normal
-from needed_files.agent import ActorNetwork, CriticNetwork, Agent
-from needed_files.quantumenvironment import QuantumEnvironment
+from agent import ActorNetwork, CriticNetwork, Agent
+from quantumenvironment import QuantumEnvironment
 
 from braket.tracking import Tracker
-from braket.jobs.metrics import log_metric
 
 import logging
 logging.basicConfig(
@@ -143,20 +142,11 @@ def make_train_ppo(
         agent.parameters(), lr=lr, eps=optim_eps
     )
 
-    print('env.backend in Train Function:', env.backend)
-    print('Type of env.backend in Train Function:', type(env.backend))
-    print('env.unwrapped.backend in Train Function:', env.unwrapped.backend)
-    print('Type of env.unwrapped.backend in Train Function:', type(env.unwrapped.backend))
-    print('action space in Train Function:', env.action_space)
-    print('batch size in Train Function:', env.batch_size)
-
-    print(temp)
-
     def train(
         total_updates: int,
         print_debug: Optional[bool] = True,
         num_prints: Optional[int] = 40,
-        max_cost: Optional[int] = 32_000,
+        max_cost: Optional[int] = 2,
     ):
         try:
             env.clear_history()
@@ -319,7 +309,7 @@ def make_train_ppo(
                         if print_debug:
                             print("mean", mean_action[0])
                             print("sigma", std_action[0])
-                            print('Fidelity History:', env.avg_fidelity_history[-1]) if len(env.avg_fidelity_history) > 0 else None
+                            print('Gate Fidelity:', env.avg_fidelity_history[-1]) if len(env.avg_fidelity_history) > 0 else None
                             print("Average return:", np.mean(env.reward_history, axis=1)[-1])
                             print("DFE Rewards Mean:", np.mean(env.reward_history, axis=1)[-1])
                             print(
@@ -357,21 +347,13 @@ def make_train_ppo(
                         avg_reward.append(np.mean(env.reward_history, axis=1)[-1])
                         std_actions.append(std_action[0].numpy())
                         avg_action_history.append(mean_action[0].numpy())
-
-                        # Log the Fidelity to the AWS Braket Hybrid Job console
-                        if ii > 1:
-                            fidelities.append(env.avg_fidelity_history[-1])
-                            log_metric(
-                                metric_name='Fidelity',
-                                value=fidelities[-1],
-                                iteration_number=ii,
-                            )
+                        fidelities.append(env.avg_fidelity_history[-1]) if len(env.avg_fidelity_history) > 0 else None
 
                 env.close()
                 writer.close()
 
                 # Ensure serializablitity of the training results by converting lists of arrays to lists of lists
-                avg_reward = [arr.tolist() for arr in avg_reward]
+                # avg_reward = [arr for arr in avg_reward]
                 std_actions = [arr.tolist() for arr in std_actions]
                 avg_action_history = [arr.tolist() for arr in avg_action_history]
 

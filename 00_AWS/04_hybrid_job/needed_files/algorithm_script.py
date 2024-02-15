@@ -17,43 +17,56 @@ from braket.aws import AwsDevice
 from braket.aws import AwsSession
 from qiskit_braket_provider import AWSBraketProvider
 
+from qiskit import QuantumCircuit
 
 
 def calibrate_gate():
     print("Job started!!!!!")
 
     braket_task_costs = Tracker().start()
+    print("Started the cost tracker")
     agent_config_path = f'{os.environ["AMZN_BRAKET_INPUT_DIR"]}/agent-config/agent_config.yaml'
-    ppo_params, network_params  = load_agent_from_yaml_file(file_path=agent_config_path)
-    agent_config = {**ppo_params, **network_params}
+    print("Accessed environment variable to get agent config file path")
+    agent_config = load_agent_from_yaml_file(file_path=agent_config_path)
+    print("Agent config: ", agent_config)
 
     # WILL NOT BE USED BECAUSE WE WANT TO USE THE BRAKET QISKIT PROVIDER SV1 BACKEND
     # device = AwsDevice(os.environ["AMZN_BRAKET_DEVICE_ARN"])
 
-    provider = AWSBraketProvider()
-    backend = provider.get_backend('Lucy')
+    # provider = AWSBraketProvider()
+    # backend = provider.get_backend('SV1')
+    # print("Backend: ", backend)
+
     
     q_env = QuantumEnvironment(gate_q_env_config)
+    print("q_env object created successfully!")
+
     q_env = ClipAction(q_env)
+    print("q_env clipped successfully!")
     q_env = RescaleAction(q_env, min_action=-1.0, max_action=1.0)
-    print("Backend BEFORE overwriting: ", backend)
+    print("q_env rescaled successfully!")
     # q_env.unwrapped.backend = backend
-    print("Backend AFTER overwriting (q_env.backend): ", q_env.backend)
-    print("Backend AFTER overwriting (q_env.unwrapped.backend): ", q_env.unwrapped.backend)
-    print('Type of q_env.backend: ', type(q_env.backend))
-    print('Type of q_env.unwrapped.backend: ', type(q_env.unwrapped.backend))
+    #print("Backend AFTER overwriting (q_env.backend): ", q_env.backend)
+    # print("Backend AFTER overwriting (q_env.unwrapped.backend): ", q_env.unwrapped.backend)
+    #print('Type of q_env.backend: ', type(q_env.backend))
+    # print('Type of q_env.unwrapped.backend: ', type(q_env.unwrapped.backend))
     
     ppo_agent = make_train_ppo(agent_config, q_env)
+    print("Retrieve train function successfully!")
 
     hp_file = os.environ["AMZN_BRAKET_HP_FILE"]
     with open(hp_file, "r") as f:
         hyperparams = json.load(f)
     num_total_updates = int(hyperparams['num_total_updates'])
+    print("Hyperparameters loaded successfully!")
 
-    training_results = ppo_agent(total_updates=num_total_updates, 
-                                 print_debug=False, 
-                                 num_prints=40,
-                                 max_cost=33000)
+    training_results = ppo_agent(
+        total_updates=num_total_updates, 
+        print_debug=False, 
+        num_prints=40,
+        max_cost=100
+    )
+    print("Training completed successfully!")
 
     training_results['task_summary'] = braket_task_costs.quantum_tasks_statistics()
     training_results['estimated cost'] = float(
