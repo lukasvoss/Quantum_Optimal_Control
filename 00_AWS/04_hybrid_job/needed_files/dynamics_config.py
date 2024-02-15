@@ -1,14 +1,14 @@
 from qiskit_dynamics.array import Array
-import jax
+# import jax
 from qiskit_dynamics import DynamicsBackend, Solver
 from needed_files.jax_solver import JaxSolver
 import numpy as np
 
-jax.config.update("jax_enable_x64", True)
-# tell JAX we are using CPU
-jax.config.update("jax_platform_name", "cpu")
-# import Array and set default backend
-Array.set_default_backend("jax")
+# jax.config.update("jax_enable_x64", True)
+# # tell JAX we are using CPU
+# jax.config.update("jax_platform_name", "cpu")
+# # import Array and set default backend
+# Array.set_default_backend("jax")
 
 dim = 3
 v0 = 4.86e9

@@ -71,7 +71,7 @@ from itertools import permutations
 from typing import Optional, Tuple, List, Union, Dict, Sequence
 import yaml
 
-from jax import jit, numpy as jnp
+# from jax import jit, numpy as jnp
 import numpy as np
 
 from gymnasium.spaces import Box
@@ -554,76 +554,76 @@ def new_params_x(
     return new_params
 
 
-def simulate_pulse_schedule(
-    solver_instance: DynamicsBackend | Solver | JaxSolver,
-    sched: pulse.Schedule | pulse.ScheduleBlock,
-    solver_options: Optional[Dict] = None,
-    target_unitary: Optional[Operator] = None,
-    target_state: Optional[Statevector | DensityMatrix] = None,
-    normalize: bool = True,
-) -> Dict[str, Union[Operator, Statevector, float]]:
-    """
-    Simulate pulse schedule on provided backend
+# def simulate_pulse_schedule(
+#     solver_instance: DynamicsBackend | Solver | JaxSolver,
+#     sched: pulse.Schedule | pulse.ScheduleBlock,
+#     solver_options: Optional[Dict] = None,
+#     target_unitary: Optional[Operator] = None,
+#     target_state: Optional[Statevector | DensityMatrix] = None,
+#     normalize: bool = True,
+# ) -> Dict[str, Union[Operator, Statevector, float]]:
+#     """
+#     Simulate pulse schedule on provided backend
 
-    :param solver_instance: DynamicsBackend or Solver instance
-    :param sched: Pulse schedule to simulate
-    :param solver_options: Optional solver options
-    :param target_unitary: Optional target unitary for gate fidelity calculation
-    :param target_state: Optional target state for state fidelity calculation
-    :param normalize: Normalize the projected statevector or not
-    :return: Dictionary containing simulated unitary, statevector, projected unitary, projected statevector, gate fidelity, state fidelity
-    """
+#     :param solver_instance: DynamicsBackend or Solver instance
+#     :param sched: Pulse schedule to simulate
+#     :param solver_options: Optional solver options
+#     :param target_unitary: Optional target unitary for gate fidelity calculation
+#     :param target_state: Optional target state for state fidelity calculation
+#     :param normalize: Normalize the projected statevector or not
+#     :return: Dictionary containing simulated unitary, statevector, projected unitary, projected statevector, gate fidelity, state fidelity
+#     """
 
-    if isinstance(solver_instance, DynamicsBackend):
-        solver = solver_instance.options.solver
-        solver_options = solver_instance.options.solver_options
-        dt = solver_instance.dt
-        subsystem_dims = list(
-            filter(lambda x: x > 1, solver_instance.options.subsystem_dims)
-        )
-    elif isinstance(solver_instance, (Solver, JaxSolver)):
-        solver = solver_instance
-        dt = solver._dt
-        subsystem_dims = solver.model.dim
-    else:
-        raise TypeError(
-            "Solver instance must be defined. Backend is not DynamicsBackend or Solver instance"
-        )
+#     if isinstance(solver_instance, DynamicsBackend):
+#         solver = solver_instance.options.solver
+#         solver_options = solver_instance.options.solver_options
+#         dt = solver_instance.dt
+#         subsystem_dims = list(
+#             filter(lambda x: x > 1, solver_instance.options.subsystem_dims)
+#         )
+#     elif isinstance(solver_instance, (Solver, JaxSolver)):
+#         solver = solver_instance
+#         dt = solver._dt
+#         subsystem_dims = solver.model.dim
+#     else:
+#         raise TypeError(
+#             "Solver instance must be defined. Backend is not DynamicsBackend or Solver instance"
+#         )
 
-    def jit_func():
-        results = solver.solve(
-            t_span=Array([0, sched.duration * dt]),
-            y0=jnp.eye(solver.model.dim),
-            signals=sched,
-            **solver_options,
-        )
-        return Array(results.y).data
+#     def jit_func():
+#         results = solver.solve(
+#             t_span=Array([0, sched.duration * dt]),
+#             y0=jnp.eye(solver.model.dim),
+#             signals=sched,
+#             **solver_options,
+#         )
+#         return Array(results.y).data
 
-    sim_func = jit(jit_func)
-    results = np.array(sim_func())
-    output_unitary = results[-1]
-    output_op = Operator(
-        output_unitary,
-        input_dims=tuple(subsystem_dims),
-        output_dims=tuple(subsystem_dims),
-    )
-    projected_unitary = qubit_projection(output_unitary, subsystem_dims)
-    initial_state = Statevector.from_int(0, subsystem_dims)
-    final_state = initial_state.evolve(output_op)
-    projected_statevec = projected_statevector(final_state, subsystem_dims, normalize)
-    final_results = {
-        "unitary": output_op,
-        "statevector": final_state,
-        "projected_unitary": projected_unitary,
-        "projected_statevector": projected_statevec,
-    }
-    if target_unitary is not None:
-        gate_fid = average_gate_fidelity(projected_unitary, target_unitary)
-        final_results["gate_fidelity"] = gate_fid
-    if target_state is not None:
-        state_fid = state_fidelity(projected_statevec, target_state, validate=False)
-        final_results["state_fidelity"] = state_fid
-    return final_results
+#     sim_func = jit(jit_func)
+#     results = np.array(sim_func())
+#     output_unitary = results[-1]
+#     output_op = Operator(
+#         output_unitary,
+#         input_dims=tuple(subsystem_dims),
+#         output_dims=tuple(subsystem_dims),
+#     )
+#     projected_unitary = qubit_projection(output_unitary, subsystem_dims)
+#     initial_state = Statevector.from_int(0, subsystem_dims)
+#     final_state = initial_state.evolve(output_op)
+#     projected_statevec = projected_statevector(final_state, subsystem_dims, normalize)
+#     final_results = {
+#         "unitary": output_op,
+#         "statevector": final_state,
+#         "projected_unitary": projected_unitary,
+#         "projected_statevector": projected_statevec,
+#     }
+#     if target_unitary is not None:
+#         gate_fid = average_gate_fidelity(projected_unitary, target_unitary)
+#         final_results["gate_fidelity"] = gate_fid
+#     if target_state is not None:
+#         state_fid = state_fidelity(projected_statevec, target_state, validate=False)
+#         final_results["state_fidelity"] = state_fid
+#     return final_results
 
 
 def state_fidelity_from_state_tomography(

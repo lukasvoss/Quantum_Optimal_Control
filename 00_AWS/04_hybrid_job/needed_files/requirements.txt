@@ -5,8 +5,8 @@ tensorflow == 2.15.0
 tensorflow_probability == 0.23.0
 torch == 2.1.1
 gymnasium == 0.29.1
-jax == 0.4.16
-jaxlib == 0.4.16
+# jax == 0.4.16
+# jaxlib == 0.4.16
 tqdm == 4.66.1
 IPython == 8.18.1
 qualang-tools == 0.15.2
