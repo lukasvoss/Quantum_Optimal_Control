@@ -849,8 +849,11 @@ def retrieve_primitives(
                 _, _ = perform_standard_calibrations(backend, calibration_files)
 
         elif isinstance(backend, (BraketLocalBackend, AWSBraketBackend)):
-            estimator = BackendEstimator(backend)
-            sampler = BackendSampler(backend)
+            # estimator = BackendEstimator(backend)
+            # sampler = BackendSampler(backend)
+            # Test if the Hybrid Job works for Qiskit SV Simulator
+            estimator = Estimator(options={"initial_layout": layout})
+            sampler = Sampler(options={"initial_layout": layout})
         else:
             raise TypeError("Backend not recognized")
     return estimator, ComputeUncompute(sampler)

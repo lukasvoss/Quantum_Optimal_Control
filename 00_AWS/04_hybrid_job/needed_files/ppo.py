@@ -18,6 +18,7 @@ from needed_files.agent import ActorNetwork, CriticNetwork, Agent
 from needed_files.quantumenvironment import QuantumEnvironment
 
 from braket.tracking import Tracker
+from braket.jobs.metrics import log_metric
 
 import sys
 import logging
@@ -735,6 +736,13 @@ def make_train_ppo(
                         ) > 0 else None
                         avg_action_history.append(mean_action[0].numpy())
                         std_actions.append(std_action[0].numpy())
+
+                        if ii > 1:
+                            log_metric(
+                                metric_name='Fidelity',
+                                value=env.avg_fidelity_history[-1],
+                                iteration_number=ii,
+                            )
 
                 env.close()
                 writer.close()
