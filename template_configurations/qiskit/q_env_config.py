@@ -44,30 +44,34 @@ def apply_parametrized_circuit(
     :return:
     """
 
-    parametrized_qc = QuantumCircuit(q_reg)
-    my_qc = QuantumCircuit(q_reg, name="custom_cx")
-    # optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
+    mode = kwargs.get('mode', 'qiskit')
+    
+    def add_gates(qc, q_reg, optimal_params, params):
+        qc.u(
+            optimal_params[0] + params[0],
+            optimal_params[1] + params[1],
+            optimal_params[2] + params[2],
+            q_reg[0],
+        )
+        qc.u(
+            optimal_params[3] + params[3],
+            optimal_params[4] + params[4],
+            optimal_params[5] + params[5],
+            q_reg[1],
+        )
+        qc.rzx(optimal_params[6] + params[6], q_reg[0], q_reg[1])
+    
     optimal_params = np.pi * np.zeros(7)
+    # optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
+    
+    if mode == 'qiskit':
+        my_qc = QuantumCircuit(q_reg, name="custom_cx")
+        add_gates(my_qc, q_reg, optimal_params, params)
+        qc.append(my_qc.to_instruction(label="custom_cx"), q_reg)
 
-    my_qc.u(
-        optimal_params[0] + params[0],
-        optimal_params[1] + params[1],
-        optimal_params[2] + params[2],
-        q_reg[0],
-    )
-    my_qc.u(
-        optimal_params[3] + params[3],
-        optimal_params[4] + params[4],
-        optimal_params[5] + params[5],
-        q_reg[1],
-    )
-
-    my_qc.rzx(optimal_params[6] + params[6], q_reg[0], q_reg[1])
-    # my_qc.u(np.pi *params[0], np.pi *params[1], np.pi *params[2], 0)
-    # my_qc.u(np.pi *params[3], np.pi *params[4], np.pi *params[5], 1)
-    # my_qc.rzx(np.pi * params[6], 0, 1)
-    qc.append(my_qc.to_instruction(label="custom_cx"), q_reg)
-
+    elif mode == 'braket':
+        # Just add the gates directly without creating a custom instruction
+        add_gates(qc, q_reg, optimal_params, params)
 
 def get_backend(
     real_backend: Optional[bool] = None,
@@ -127,7 +131,8 @@ def get_backend(
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
             # backend = FakeJakartaV2()
-            backend = AWSBraketProvider().get_backend('SV1')
+            # backend = AWSBraketProvider().get_backend('SV1')
+            backend = None
 
     if backend is None:
         Warning("No backend was provided, Statevector simulation will be used")
@@ -159,7 +164,11 @@ backend_config = QiskitConfig(
     estimator_options=estimator_options
     if isinstance(backend, RuntimeBackend)
     else None,
-    parametrized_circuit_kwargs={"target": params["target"], "backend": backend},
+    parametrized_circuit_kwargs={
+        "target": params["target"], 
+        "backend": backend,
+        "mode": 'qiskit' # Braket Specific: We cannot translate a qiskit circuit to a braket circuit if it's not a sequence of gates but a custom instruction
+    },
 )
 QuantumEnvironment.check_on_exp = (
     ContextAwareQuantumEnvironment.check_on_exp
