@@ -845,8 +845,14 @@ def retrieve_primitives(
                 _, _ = perform_standard_calibrations(backend, calibration_files)
 
         elif isinstance(backend, (BraketLocalBackend, AWSBraketBackend)):
-            estimator = BackendEstimator(backend)
-            sampler = BackendSampler(backend)
+            # estimator = BackendEstimator(backend)
+            # sampler = BackendSampler(backend)
+            from braket_estimator import BraketEstimator
+            from braket.devices import LocalSimulator 
+            
+            estimator = BraketEstimator(LocalSimulator())
+
+            return estimator, None # Do not return a sampler
         else:
             raise TypeError("Backend not recognized")
     return estimator, ComputeUncompute(sampler)

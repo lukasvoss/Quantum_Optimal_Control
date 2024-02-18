@@ -62,6 +62,9 @@ from helper_functions import (
 from qconfig import QiskitConfig, QEnvConfig, QuaConfig
 from scipy.optimize import minimize
 
+from qiskit_braket_provider.providers import adapter
+
+from braket_estimator import BraketEstimator
 
 # QUA imports
 # from qualang_tools.bakery.bakery import baking
@@ -504,6 +507,43 @@ class QuantumEnvironment(Env):
         qc = self.circuit_truncations[0]
         input_state_circ = QuantumCircuit(self.tgt_register)
 
+        ### Braket Estimator workflow
+        qiskit_circ_before_conversion = QuantumCircuit(self.tgt_register)
+        self.parametrized_circuit_func(
+            qiskit_circ_before_conversion, self._parameters, self.tgt_register, **self._func_args
+        )
+        # Convert qiskit circuit to braket circuit
+        braket_circ = adapter.convert_qiskit_to_braket_circuit(qiskit_circ_before_conversion)
+
+        # Create parameter names and map them to the values in the action vector
+        parameter_names = [
+            f"{self._parameters.name}_{i}" 
+            for i in range(self._parameters._size)
+        ]
+        # Create a list of dictionaries
+        bound_parameters = [
+            {name: float(value) for name, value in zip(parameter_names, params)} 
+            for params in actions
+        ]
+
+        # Create a list of tuples for the observables to be measured
+        observables = [(op, val.real + val.imag) for op, val in self._observables.to_list()]
+        target_register = self.target["register"]
+        batch_size = self.batch_size
+
+        ### TODO: Append input state prep circuit to the custom circuit with front composition
+        # full_circ = qc.compose(input_state_circ, inplace=False, front=True)
+
+        if isinstance(self.estimator, BraketEstimator):
+            expvals = self.estimator.run(
+                circuit=[braket_circ] * batch_size,
+                observables=[observables] * batch_size,
+                target_register=[target_register] * batch_size,
+                bound_parameters=bound_parameters,
+            )
+        ###
+        
+        ### Qiskit Estimator workflow
         params, batch_size = np.array(actions), self.batch_size
         assert (
             len(params) == batch_size

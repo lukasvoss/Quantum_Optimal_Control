@@ -150,7 +150,7 @@ class BraketEstimator:
                 hamiltonian_results.append(job.result())
 
         hamiltonian_expval = self._hamiltonian_post_process(hamiltonian_results, coefficients)
-        return hamiltonian_results, hamiltonian_expval
+        return hamiltonian_expval
     
 
     def run(
@@ -172,7 +172,7 @@ class BraketEstimator:
                     if bound_parameters:
                         expval = self._measure_hamiltonian(circ, observables[idx], target_register[idx], bound_parameters[idx], shots)
                     else:
-                        _, expval = self._measure_hamiltonian(circ, observables[idx], target_register[idx], None, shots)
+                        expval = self._measure_hamiltonian(circ, observables[idx], target_register[idx], None, shots)
                     hamiltonian_results.append(expval)
                 return np.array(hamiltonian_results)
 
@@ -198,9 +198,9 @@ class BraketEstimator:
 
             if isinstance(observables, list) and len(observables) > 1: # Measure a Hamiltonian expression for a single circuit
                 if bound_parameters:
-                    _, hamiltonian_expval = self._measure_hamiltonian(circuit, observables, target_register, bound_parameters, shots)
+                    hamiltonian_expval = self._measure_hamiltonian(circuit, observables, target_register, bound_parameters, shots)
                 else:
-                    _, hamiltonian_expval = self._measure_hamiltonian(circuit, observables, target_register, None, shots)
+                    hamiltonian_expval = self._measure_hamiltonian(circuit, observables, target_register, None, shots)
                 return np.array(hamiltonian_expval)
 
             else: # Measure a single circuit for a single observable
