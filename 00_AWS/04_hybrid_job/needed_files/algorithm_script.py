@@ -46,9 +46,9 @@ def calibrate_gate():
     q_env = RescaleAction(q_env, min_action=-1.0, max_action=1.0)
     print("q_env rescaled successfully!")
     # q_env.unwrapped.backend = backend
-    #print("Backend AFTER overwriting (q_env.backend): ", q_env.backend)
+    # print("Backend AFTER overwriting (q_env.backend): ", q_env.backend)
     # print("Backend AFTER overwriting (q_env.unwrapped.backend): ", q_env.unwrapped.backend)
-    #print('Type of q_env.backend: ', type(q_env.backend))
+    # print('Type of q_env.backend: ', type(q_env.backend))
     # print('Type of q_env.unwrapped.backend: ', type(q_env.unwrapped.backend))
     
     ppo_agent = make_train_ppo(agent_config, q_env)

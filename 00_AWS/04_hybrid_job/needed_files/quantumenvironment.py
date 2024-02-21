@@ -4,7 +4,9 @@ quantum system (could also include QUA code in the future)
 
 Author: Arthur Strauss
 Created on 28/11/2022
+Last updated: 16/02/2024
 """
+
 from __future__ import annotations
 
 # For compatibility for options formatting between Estimators.
@@ -16,6 +18,7 @@ from typing import Dict, Optional, List, Callable, Any, SupportsFloat
 from gymnasium import Env
 import numpy as np
 from gymnasium.core import ObsType, ActType
+from qiskit import schedule
 
 # Qiskit imports
 from qiskit.circuit import (
@@ -25,7 +28,6 @@ from qiskit.circuit import (
     CircuitInstruction,
     ParameterVector,
 )
-from qiskit.circuit.library import RZGate
 
 # Qiskit Estimator Primitives: for computing Pauli expectation value sampling easily
 from qiskit.primitives import BaseEstimator
@@ -34,7 +36,7 @@ from qiskit.primitives import BaseEstimator
 from qiskit.quantum_info.operators import SparsePauliOp, Operator, pauli_basis
 from qiskit.quantum_info.operators.measures import average_gate_fidelity, state_fidelity
 from qiskit.quantum_info.states import DensityMatrix, Statevector
-from qiskit.transpiler import Layout
+from qiskit.transpiler import Layout, InstructionProperties
 
 # Qiskit dynamics for pulse simulation (& benchmarking)
 from qiskit_dynamics import DynamicsBackend
@@ -58,9 +60,11 @@ from needed_files.helper_functions import (
     gate_fidelity_from_process_tomography,
     qubit_projection,
     retrieve_backend_info,
+    simulate_pulse_schedule,
+    rotate_unitary,
+    get_optimal_z_rotation,
 )
 from needed_files.qconfig import QiskitConfig, QEnvConfig, QuaConfig
-from scipy.optimize import minimize
 
 
 # QUA imports
@@ -442,7 +446,7 @@ class QuantumEnvironment(Env):
 
     def check_reward(self):
         if self.training_with_cal:
-            _, _ = self.reset() # Observables and Pauli shots should be accessed since they are not set and perform action will lead to issue
+            _, _ = self.reset()
             sample_action = np.zeros(self.action_space.shape)
             batch_action = np.tile(sample_action, (self.batch_size, 1))
             batch_rewards = self.perform_action(batch_action)
@@ -576,9 +580,11 @@ class QuantumEnvironment(Env):
                             self.backend,
                             self.target["register"],
                             target_state=target,
-                            session=self.estimator.session
-                            if hasattr(self.estimator, "session")
-                            else None,
+                            session=(
+                                self.estimator.session
+                                if hasattr(self.estimator, "session")
+                                else None
+                            ),
                         )
                     )
                     print("Finished state tomography")
@@ -590,9 +596,11 @@ class QuantumEnvironment(Env):
                             self.backend,
                             target,
                             self.target["register"],
-                            session=self.estimator.session
-                            if hasattr(self.estimator, "session")
-                            else None,
+                            session=(
+                                self.estimator.session
+                                if hasattr(self.estimator, "session")
+                                else None
+                            ),
                         )
                     )
                     print("Finished process tomography")
@@ -676,47 +684,21 @@ class QuantumEnvironment(Env):
                             for unitary in qubitized_unitaries
                         ]
                         best_unitary = qubitized_unitaries[np.argmax(fids)]
-
-                        def rotate_unitary(x, unitary: Operator):
-                            assert (
-                                len(x) % 2 == 0
-                            ), "Rotation parameters should be a pair"
-                            ops = [Operator(RZGate(x[i])) for i in range(len(x))]
-                            pre_rot, post_rot = ops[0], ops[-1]
-                            for i in range(1, len(x) // 2):
-                                pre_rot = pre_rot.tensor(ops[i])
-                                post_rot = post_rot.expand(ops[-i - 1])
-
-                            return pre_rot @ unitary @ post_rot
-
-                        def cost_function(x):
-                            rotated_unitary = rotate_unitary(x, best_unitary)
-                            return 1 - average_gate_fidelity(rotated_unitary, gate)
-
-                        x0 = np.zeros(2**self._n_qubits)
-                        res = minimize(cost_function, x0, method="Nelder-Mead")
+                        res = get_optimal_z_rotation(best_unitary, gate, self.n_qubits)
                         rotated_unitaries = [
                             rotate_unitary(res.x, unitary)
                             for unitary in qubitized_unitaries
                         ]
-                        # self.process_fidelity_history.append(
-                        #     np.mean(
-                        #         [
-                        #             process_fidelity(unitary, gate)
-                        #             for unitary in rotated_unitaries
-                        #         ]
-                        #     )
-                        # )
-
                         avg_fid_batch = np.mean(
                             [
                                 average_gate_fidelity(unitary, gate)
                                 for unitary in rotated_unitaries
                             ]
                         )
-                        avg_unitary = Operator(np.mean(rotated_unitaries, axis=0))
-                        fid_over_avg = average_gate_fidelity(avg_unitary, gate)
-                        self.avg_fidelity_history.append([avg_fid_batch, fid_over_avg])
+
+                        self.avg_fidelity_history.append(avg_fid_batch)
+                        unitaries = rotated_unitaries
+
                     self.built_unitaries.append(unitaries)
 
                 else:
@@ -788,6 +770,38 @@ class QuantumEnvironment(Env):
         if isinstance(self.estimator, RuntimeEstimator):
             self.estimator.session.close()
 
+    def update_gate_calibration(self):
+        """
+        Update backend target with the optimal action found during training
+        """
+        if self.abstraction_level == "pulse":
+            sched = schedule(
+                self.circuit_truncations[0], self.backend
+            ).assign_parameters(
+                {
+                    param: action
+                    for param, action in zip(self._parameters, self._optimal_action)
+                }
+            )
+            duration = sched.duration
+            if isinstance(self.backend, DynamicsBackend):
+                error = 1.0
+                error -= simulate_pulse_schedule(
+                    self.backend,
+                    sched,
+                    target_unitary=Operator(self.target["gate"]),
+                    target_state=Statevector.from_int(0, dims=[2] * self.n_qubits),
+                )["gate_fidelity"]
+
+            else:
+                error = 1.0 - np.max(self.avg_fidelity_history)
+            instruction_prop = InstructionProperties(duration, error, sched)
+            self.backend.target.update_instruction_properties(
+                self.target["gate"].name,
+                tuple(self.physical_target_qubits),
+                instruction_prop,
+            )
+
     def __repr__(self):
         string = f"QuantumEnvironment composed of {self._n_qubits} qubits, \n"
         string += (
@@ -798,7 +812,7 @@ class QuantumEnvironment(Env):
         string += f"Backend: {self.backend},\n"
         string += f"Abstraction level: {self.abstraction_level},\n"
         string += f"Run options: N_shots ({self.n_shots}), Sampling_Pauli_space ({self.sampling_Pauli_space}), \n"
-        string += f"Batchsize: {self.batch_size}, \n"
+        string += f"Batch size: {self.batch_size}, \n"
         return string
 
     # Properties
@@ -908,9 +922,11 @@ class QuantumEnvironment(Env):
                 "c_factor": self.c_factor,
                 "reward_history": self.reward_history,
                 "action_history": self.action_history,
-                "fidelity_history": self.avg_fidelity_history
-                if self.target_type == "gate"
-                else self.state_fidelity_history,
+                "fidelity_history": (
+                    self.avg_fidelity_history
+                    if self.target_type == "gate"
+                    else self.state_fidelity_history
+                ),
             }
         )
 

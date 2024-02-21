@@ -758,7 +758,7 @@ def make_train_ppo(
                     'fidelities': fidelities,
                     'avg_action_history': avg_action_history,
                     # returns the action vector that led to the highest gate fidelity during the training process
-                    'action_vector': np.mean(avg_action_history[np.argmax(fidelities)], axis=0),
+                    'action_vector': avg_action_history[np.argmax(fidelities)],
                 }
         except Exception as e:
             logging.error(f'An error occurred at iteration {ii} during training: {e}')
@@ -771,7 +771,7 @@ def make_train_ppo(
                     'fidelities': fidelities,
                     'avg_action_history': avg_action_history,
                     # returns the action vector that led to the highest gate fidelity during the training process
-                    'action_vector': np.mean(avg_action_history[np.argmax(fidelities)], axis=0),
+                    'action_vector':avg_action_history[np.argmax(fidelities)],
                 }
 
     return train

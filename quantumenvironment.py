@@ -44,6 +44,9 @@ from qiskit_experiments.library.tomography.basis import (
     PauliPreparationBasis,
 )  # , Pauli6PreparationBasis
 from qiskit_ibm_runtime import Estimator as RuntimeEstimator
+from custom_jax_sim import DynamicsBackendEstimator
+from qiskit_aer.primitives import Estimator as AerEstimator
+from qiskit.primitives import BackendEstimator, Estimator
 
 # Tensorflow modules
 from tensorflow_probability.python.distributions import Categorical
@@ -504,92 +507,122 @@ class QuantumEnvironment(Env):
         :return: Reward table (reward for each run in the batch)
         """
 
-        qc = self.circuit_truncations[0]
         input_state_circ = QuantumCircuit(self.tgt_register)
 
-        ### Braket Estimator workflow
-        qiskit_circ_before_conversion = QuantumCircuit(self.tgt_register)
-        self.parametrized_circuit_func(
-            qiskit_circ_before_conversion, self._parameters, self.tgt_register, **self._func_args
-        )
-        # Convert qiskit circuit to braket circuit
-        braket_circ = adapter.convert_qiskit_to_braket_circuit(qiskit_circ_before_conversion)
-
-        # Create parameter names and map them to the values in the action vector
-        parameter_names = [
-            f"{self._parameters.name}_{i}" 
-            for i in range(self._parameters._size)
-        ]
-        # Create a list of dictionaries
-        bound_parameters = [
-            {name: float(value) for name, value in zip(parameter_names, params)} 
-            for params in actions
-        ]
-
-        # Create a list of tuples for the observables to be measured
-        observables = [(op, val.real + val.imag) for op, val in self._observables.to_list()]
-        target_register = self.target["register"]
-        batch_size = self.batch_size
-
-        ### TODO: Append input state prep circuit to the custom circuit with front composition
-        # full_circ = qc.compose(input_state_circ, inplace=False, front=True)
-
-        if isinstance(self.estimator, BraketEstimator):
-            expvals = self.estimator.run(
-                circuit=[braket_circ] * batch_size,
-                observables=[observables] * batch_size,
-                target_register=[target_register] * batch_size,
-                bound_parameters=bound_parameters,
-            )
-        ###
-        
-        ### Qiskit Estimator workflow
         params, batch_size = np.array(actions), self.batch_size
         assert (
             len(params) == batch_size
-        ), f"Action size mismatch {len(params)} != {batch_size} "
+        ), f"Action size mismatch {len(params)} != {batch_size}"
 
-        if self.target_type == "gate":
-            # Pick random input state from the list of possible input states (forming a tomographically complete set)
-            input_state_circ = self.target["input_states"][self._index_input_state][
-                "circuit"
+        if isinstance(self.estimator, BraketEstimator): ### Braket Estimator workflow
+            
+            # Create the braket circuit only once
+            if not self.braket_circ:
+                qiskit_circ_before_conversion = QuantumCircuit(self.tgt_register)
+                self.parametrized_circuit_func(
+                    qiskit_circ_before_conversion, self._parameters, self.tgt_register, **self._func_args
+                )
+                # Convert qiskit circuit to braket circuit
+                self.braket_circ = adapter.convert_qiskit_to_braket_circuit(qiskit_circ_before_conversion)
+                braket_circuit = self.braket_circ
+
+            # Create parameter names and map them to the values in the action vector
+            parameter_names = [
+                f'{self._parameters.name}_{i}'
+                for i in range(self._parameters._size)
+            ]
+            
+            # Create a list of dictionaries
+            bound_parameters = [
+                {name: float(value) for name, value in zip(parameter_names, param_set)} 
+                for param_set in params
             ]
 
-        observables, pauli_shots = self._observables, self._pauli_shots
+            # Create a list of tuples for the observables to be measured
+            observables = [(op, val.real + val.imag) for op, val in self._observables.to_list()]
+            target_register = self.target["register"]
+            batch_size = self.batch_size
 
-        if self.do_benchmark():
-            print("Starting benchmarking...")
-            self.store_benchmarks(params)
-            print("Finished benchmarking")
-        print("Sending Estimator job...")
-        try:
-            self.estimator = handle_session(
-                self.estimator, self.backend, self._session_counts, qc, input_state_circ
-            )
-            # Append input state prep circuit to the custom circuit with front composition
-            full_circ = qc.compose(input_state_circ, inplace=False, front=True)
-            print(observables)
-            job = self.estimator.run(
-                circuits=[full_circ] * batch_size,
-                observables=[observables] * batch_size,
-                parameter_values=params,
-                shots=int(np.max(pauli_shots) * self.n_shots),
-            )
+            ### TODO: Append input state prep circuit to the custom circuit with front composition
+            if self.target_type == "gate":
+                # Pick random input state from the list of possible input states (forming a tomographically complete set)
+                input_state_circ = self.target["input_states"][self._index_input_state][
+                    "circuit"
+                ]
+                input_state_circ_braket = adapter.convert_qiskit_to_braket_circuit(input_state_circ)
+            full_braket_circ = input_state_circ_braket.add_circuit(braket_circuit)
 
-            reward_table = job.result().values
-        except Exception as e:
-            self.close()
-            raise e
-        print("Finished Estimator job")
+            try: 
+                print('Sending Braket Estimator job...')
+                expvals = self.estimator.run(
+                    circuit=[full_braket_circ] * batch_size,
+                    observables=[observables] * batch_size,
+                    target_register=[target_register] * batch_size,
+                    bound_parameters=bound_parameters,
+                    shots=int(np.max(pauli_shots) * self.n_shots),
+                )
+                print("Finished Estimator job")
+            except Exception as e:
+                raise 
+            
+            reward_table = expvals.astype(float) # Shape (batchsize, )
 
-        if np.mean(reward_table) > self._max_return:
-            self._max_return = np.mean(reward_table)
-            self._optimal_action = np.mean(params, axis=0)
+            if np.mean(reward_table) > self._max_return:
+                self._max_return = np.mean(reward_table)
+                # TODO: Params is of type float32, so self._optimal_action will be of type float32
+                self._optimal_action = np.mean(params, axis=0)
+
+        
+        ### Qiskit Estimator workflow
+        elif isinstance(self.estimator, (RuntimeEstimator, DynamicsBackendEstimator, AerEstimator, Estimator, BackendEstimator)):
+            qc = self.circuit_truncations[0]
+            # params, batch_size = np.array(actions), self.batch_size
+            # assert (
+            #     len(params) == batch_size
+            # ), f"Action size mismatch {len(params)} != {batch_size} "
+
+            if self.target_type == "gate":
+                # Pick random input state from the list of possible input states (forming a tomographically complete set)
+                input_state_circ = self.target["input_states"][self._index_input_state][
+                    "circuit"
+                ]
+
+            observables, pauli_shots = self._observables, self._pauli_shots
+
+            if self.do_benchmark():
+                print("Starting benchmarking...")
+                self.store_benchmarks(params)
+                print("Finished benchmarking")
+            print("Sending Estimator job...")
+            try:
+                self.estimator = handle_session(
+                    self.estimator, self.backend, self._session_counts, qc, input_state_circ
+                )
+                # Append input state prep circuit to the custom circuit with front composition
+                full_circ = qc.compose(input_state_circ, inplace=False, front=True)
+                print(observables)
+                job = self.estimator.run(
+                    circuits=[full_circ] * batch_size,
+                    observables=[observables] * batch_size,
+                    parameter_values=params,
+                    shots=int(np.max(pauli_shots) * self.n_shots),
+                )
+
+                reward_table = job.result().values
+            except Exception as e:
+                self.close()
+                raise e
+            print("Finished Estimator job")
+
+            if np.mean(reward_table) > self._max_return:
+                self._max_return = np.mean(reward_table)
+                self._optimal_action = np.mean(params, axis=0)
+
         self.reward_history.append(reward_table)
         assert (
             len(reward_table) == self.batch_size
         ), f"Reward table size mismatch {len(reward_table)} != {self.batch_size} "
-        return reward_table  # Shape [batchsize]
+        return reward_table  # Shape (batchsize, )
 
     def store_benchmarks(self, params: np.array):
         """

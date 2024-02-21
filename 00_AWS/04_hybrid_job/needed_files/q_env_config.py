@@ -2,33 +2,23 @@ from __future__ import annotations
 
 from typing import Optional, Dict
 import os
-import sys
-import yaml
-from gymnasium.spaces import Box
 import numpy as np
-from needed_files.basis_gate_library import FixedFrequencyTransmon, EchoedCrossResonance
 from needed_files.helper_functions import (
-    get_ecr_params,
     load_q_env_from_yaml_file,
-    perform_standard_calibrations,
+    select_backend,
 )
-from qiskit import pulse, QuantumCircuit, QuantumRegister, transpile
-from qiskit.circuit import ParameterVector, Gate
-from qiskit_dynamics import Solver, DynamicsBackend
-from qiskit_ibm_runtime import QiskitRuntimeService, IBMBackend as RuntimeBackend
-from qiskit.providers.fake_provider import FakeProvider
+from qiskit import QuantumCircuit, QuantumRegister, transpile
+from qiskit.circuit import ParameterVector
+from qiskit_ibm_runtime import IBMBackend as RuntimeBackend
+from qiskit_ibm_runtime.fake_provider import FakeProvider, FakeProviderForBackendV2
 from qiskit.providers import BackendV1, BackendV2
-from qiskit.providers.fake_provider import FakeJakartaV2
-from qiskit_experiments.calibration_management import Calibrations
 
 from needed_files.qconfig import QiskitConfig, QEnvConfig
 from needed_files.quantumenvironment import QuantumEnvironment
 from needed_files.context_aware_quantum_environment import ContextAwareQuantumEnvironment
-from needed_files.dynamics_config import jax_backend
 
 from qiskit_braket_provider import AWSBraketProvider
 
-# Get the config file from the environment variable of the AWS Braket Hybrid Job
 config_file_name = 'q_env_gate_config.yaml'
 config_file_address = f'{os.environ["AMZN_BRAKET_INPUT_DIR"]}/q-env-config/{config_file_name}'
 
@@ -41,12 +31,11 @@ def apply_parametrized_circuit(
     This function is used to run the QuantumCircuit instance on a Runtime backend
     :param qc: Quantum Circuit instance to add the gate on
     :param params: Parameters of the custom Gate
-    :param tgt_register: Quantum Register formed of target qubits
+    :param q_reg: Quantum Register formed of target qubits
     :return:
     """
-
-    parametrized_qc = QuantumCircuit(q_reg)
-    my_qc = QuantumCircuit(q_reg, name="custom_cx")
+    target = kwargs["target"]
+    my_qc = QuantumCircuit(q_reg, name=f"custom_{target['gate'].name}")
     # optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
     optimal_params = np.pi * np.zeros(7)
 
@@ -62,12 +51,10 @@ def apply_parametrized_circuit(
         optimal_params[5] + params[5],
         q_reg[1],
     )
-
+    
     my_qc.rzx(optimal_params[6] + params[6], q_reg[0], q_reg[1])
-    # my_qc.u(np.pi *params[0], np.pi *params[1], np.pi *params[2], 0)
-    # my_qc.u(np.pi *params[3], np.pi *params[4], np.pi *params[5], 1)
-    # my_qc.rzx(np.pi * params[6], 0, 1)
-    qc.append(my_qc.to_instruction(label="custom_cx"), q_reg)
+
+    qc.append(my_qc.to_instruction(label=my_qc.name), q_reg)
 
 
 def get_backend(
@@ -77,6 +64,8 @@ def get_backend(
     physical_qubits: Optional[list] = None,
     channel: Optional[str] = None,
     instance: Optional[str] = None,
+    solver_options: Optional[Dict] = None,
+    calibration_files: Optional[str] = None,
 ):
     """
     Define backend on which the calibration is performed.
@@ -85,85 +74,71 @@ def get_backend(
     :param real_backend: If True, then calibration is performed on real quantum hardware, otherwise on simulator
     :param backend_name: Name of the backend to be used, if None, then least busy backend is used
     :param use_dynamics: If True, then DynamicsBackend is used, otherwise standard backend is used
-    :param n_qubits: Number of qubits to be used for the calibration
-    :param channel: Qiskit Runtime Channel
-    :param instance: Qiskit Runtime Instance
+    :param physical_qubits: Physical qubits indices to be used for the calibration
+    :param channel: Qiskit Runtime Channel (for real backend)
+    :param instance: Qiskit Runtime Instance (for real backend)
+    :param solver_options: Options for the solver (for DynamicsBackend)
+    :param calibration_files: Path to the calibration files (for DynamicsBackend)
     :return: Backend instance
     """
     # Real backend initialization
 
-    backend = None
-    if real_backend is not None:
-        if real_backend:
-            service = QiskitRuntimeService(channel=channel, instance=instance)
-            if backend_name is None:
-                backend = service.least_busy(min_num_qubits=2)
-            else:
-                backend = service.get_backend(backend_name)
-
-            # Specify options below if needed
-            # backend.set_options(**options)
-        else:
-            # Fake backend initialization (Aer Simulator)
-            if backend_name is None:
-                backend_name = "fake_jakarta"
-            backend = FakeProvider().get_backend(backend_name)
-
-        if use_dynamics:
-            if backend is not None:
-                backend = DynamicsBackend.from_backend(
-                    backend, subsystem_list=list(physical_qubits)
-                )
-                _, _ = perform_standard_calibrations(backend)
-            else:
-                raise ValueError(
-                    "No backend was found with given name, DynamicsBackend cannot be used"
-                )
-    else:
-        # Propose here your custom backend, for Dynamics we take for instance the configuration from dynamics_config.py
-        if use_dynamics is not None and use_dynamics:
-            backend = jax_backend
-            _, _ = perform_standard_calibrations(backend)
-        else:
-            # TODO: Add here your custom backend
-            # For now use FakeJakartaV2 as a safe working custom backend
-            #backend = FakeJakartaV2()
-            backend = AWSBraketProvider().get_backend('SV1')
+    backend = select_backend(
+        real_backend,
+        channel,
+        instance,
+        backend_name,
+        use_dynamics,
+        physical_qubits,
+        solver_options,
+        calibration_files,
+    )
 
     if backend is None:
-        Warning("No backend was provided, Statevector simulation will be used")
+        # TODO: Add here your custom backend
+        # For now use FakeJakartaV2 as a safe working custom backend
+        # backend = FakeProvider().get_backend("fake_jakarta")
+        from qiskit.providers.fake_provider import FakeJakartaV2
+
+        # backend = FakeJakartaV2()
+        backend = AWSBraketProvider().get_backend('SV1')
+    if backend is None:
+        Warning("No backend was provided, State vector simulation will be used")
     return backend
 
 
-def get_circuit_context(backend: Optional[BackendV1 | BackendV2]):
+def get_circuit_context(backend: Optional[BackendV2]):
     circuit = QuantumCircuit(5)
     circuit.h(0)
     for i in range(1, 5):
         circuit.cx(0, i)
     circuit.h(0)
 
-    if backend is not None:
-        circuit = transpile(circuit, backend)
-    print("Circuit context")
-    print(circuit)
+    if backend is not None and backend.target.has_calibration("x", (0,)):
+        circuit = transpile(circuit, backend, optimization_level=1)
+    print("Circuit context", circuit)
+
     return circuit
 
 
 # Do not touch part below, just retrieve in your notebook training_config and circuit_context
-(params, backend_params, estimator_options, check_on_exp) = load_q_env_from_yaml_file(
-    config_file_address
-)
+(
+    env_params,
+    backend_params,
+    estimator_options,
+    check_on_exp,
+) = load_q_env_from_yaml_file(config_file_address)
 backend = get_backend(**backend_params)
 backend_config = QiskitConfig(
     apply_parametrized_circuit,
     backend,
-    estimator_options=estimator_options
-    if isinstance(backend, RuntimeBackend)
-    else None,
-    parametrized_circuit_kwargs={"target": params["target"], "backend": backend},
+    estimator_options=(
+        estimator_options if isinstance(backend, RuntimeBackend) else None
+    ),
+    parametrized_circuit_kwargs={"target": env_params["target"], "backend": backend},
 )
-QuantumEnvironment.check_on_exp = (
-    ContextAwareQuantumEnvironment.check_on_exp
-) = check_on_exp
-q_env_config = QEnvConfig(backend_config=backend_config, **params)
+QuantumEnvironment.check_on_exp = ContextAwareQuantumEnvironment.check_on_exp = (
+    check_on_exp
+)
+q_env_config = QEnvConfig(backend_config=backend_config, **env_params)
 circuit_context = get_circuit_context(backend)

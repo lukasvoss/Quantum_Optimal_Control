@@ -131,8 +131,12 @@ def get_backend(
             # TODO: Add here your custom backend
             # For now use FakeJakartaV2 as a safe working custom backend
             # backend = FakeJakartaV2()
-            # backend = AWSBraketProvider().get_backend('SV1')
-            backend = None
+            # backend = None
+            
+            # LocalSimulator() does not have attributes like num_qubits which are needed in the workflow
+            # Use SV1 as a dummy/placeholder, but estmimator is build with LocalSimulator()
+            backend = AWSBraketProvider().get_backend('SV1') 
+            
 
     if backend is None:
         Warning("No backend was provided, Statevector simulation will be used")
@@ -167,7 +171,8 @@ backend_config = QiskitConfig(
     parametrized_circuit_kwargs={
         "target": params["target"], 
         "backend": backend,
-        "mode": 'qiskit' # Braket Specific: We cannot translate a qiskit circuit to a braket circuit if it's not a sequence of gates but a custom instruction
+        # Choose from either 'qiskit' or 'braket'
+        "mode": 'braket' # Braket Specific: We cannot convert a qiskit circuit to a braket circuit if it's not a sequence of gates but a custom instruction
     },
 )
 QuantumEnvironment.check_on_exp = (
