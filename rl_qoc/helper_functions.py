@@ -1753,46 +1753,50 @@ def get_hardware_runtime_single_circuit(
     return total_execution_time
 
 
-# def get_hardware_runtime_single_circuit(
-#     qc: QuantumCircuit, circuit_gate_times: Optional[Dict]=None, backend: Optional[BackendV2]=None
-# ) -> float:
-#     """
-#     Return a worst-case estimate of the runtime for a single execution of the circuit on the hardware
+def create_custom_file_name(config_path: str) -> str:
+    config = load_from_yaml_file(config_path)
 
-#     :param qc: QuantumCircuit to be executed
-#     """
+    target_gate = config['TARGET']['GATE']
+    physical_qubits = config['TARGET']['PHYSICAL_QUBITS']
 
-#     if backend is not None and backend.target.InstructionDurations is not None:
-#         instruction_durations = backend.target.InstructionDurations
-#         total_execution_time = sum(instruction_durations.get(instr[0].name, instr[1]) for instr in qc.data)
-#         return total_execution_time
+    # Extract execution parameters
+    execution_params = config['ENV']['EXECUTION']
+    sampling_paulis = execution_params['SAMPLING_PAULIS']
+    n_shots = execution_params['N_SHOTS']
+    n_reps = execution_params['N_REPS']
+    batch_size = execution_params['BATCH_SIZE']
+    seed = execution_params['SEED']
 
-#     if not circuit_gate_times:
-#         raise ValueError(
-#             "Empty circuit_gate_time dictionary received. Please add durations for your gates."
-#         )
+    # Extract action space parameters
+    action_space_low = config['ENV']['ACTION_SPACE']['LOW']
+    action_space_high = config['ENV']['ACTION_SPACE']['HIGH']
+    action_space_low_min = min(action_space_low)
+    action_space_high_max = max(action_space_high)
 
-#     total_time_per_qubit = {qubit: 0.0 for qubit in qc.qubits}
-#     for instruction in qc.decompose().data:
-#         for qubit in instruction.qubits:
-#             # Custom gates only appear in the circuit context for the CAQEnv case
-#             if instruction.operation.label in circuit_gate_times:
-#                 total_time_per_qubit[qubit] += circuit_gate_times[
-#                     instruction.operation.label
-#                 ]
-#             else:
-#                 total_time_per_qubit[qubit] += circuit_gate_times[
-#                     instruction.operation.name
-#                 ]
+    # Extract reward method and parameters
+    reward_method = config['ENV']['REWARD']['REWARD_METHOD']
+    reward_params = config['ENV']['REWARD_PARAMS']
 
-#     # Find the maximum execution time among all qubits
-#     total_execution_time = (
-#         max(total_time_per_qubit.values())
-#         + circuit_gate_times["reset"]
-#         + circuit_gate_times["measure"]
-#     )
+    # Build the custom string based on the reward method
+    custom_string = f"target_{target_gate}_qubits_{physical_qubits[0]}-{physical_qubits[1]}_reward_{reward_method}"
 
-#     return total_execution_time
+    # Add execution parameters
+    custom_string += f"_paulis_{sampling_paulis}_shots_{n_shots}_reps_{n_reps}_batchsize_{batch_size}_seed_{seed}"
+
+    # Add action space parameters
+    custom_string += f"_action_low_{action_space_low_min}_high_{action_space_high_max}"
+
+    # Add relevant reward parameters based on the reward method
+    if reward_method == "channel":
+        custom_string += f"_num_eigenstates_{reward_params['NUM_EIGENSTATES_PER_PAULI']}"
+    elif reward_method == "xeb":
+        custom_string += f"_num_sequences_{reward_params['NUM_SEQUENCES']}_depth_{reward_params['DEPTH']}"
+    elif reward_method == "orbit":
+        custom_string += f"_num_sequences_{reward_params['NUM_SEQUENCES']}_depth_{reward_params['DEPTH']}_interleaved_{reward_params['USE_INTERLEAVED']}"
+    elif reward_method == "cafe":
+        custom_string += f"_input_states_choice_{reward_params['INPUT_STATES_CHOICE']}"
+
+    return custom_string
 
 
 def get_hardware_runtime_cumsum(

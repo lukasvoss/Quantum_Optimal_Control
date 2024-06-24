@@ -171,8 +171,8 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
     def _ident_str(self):
         """This is a one-line description of the environment with some key parameters."""
         base_ident_str = super()._ident_str()
-        return f"SpilloverNoise_phi-{self.phi / np.pi}pi_gamma-{self.gamma}_{base_ident_str}"
-
+        return f"SpilloverNoise_phi-{round(self.phi/np.pi, 4)}pi_gamma-{self.gamma}_{base_ident_str}"
+        
     def __repr__(self):
         string = ContextAwareQuantumEnvironment.__repr__(self)
         string += f"Custom Spillover Noise Use Case with noisy RX(phi={self.phi / np.pi}pi) rotation on qubit 0\n"

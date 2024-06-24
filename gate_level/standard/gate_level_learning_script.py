@@ -14,28 +14,44 @@ module_path = os.path.abspath(
 )
 if module_path not in sys.path:
     sys.path.append(module_path)
-from quantumenvironment import QuantumEnvironmentV2
-from context_aware_quantum_environment import ContextAwareQuantumEnvironmentV2
-from gate_level_abstraction.spillover_noise_use_case.spillover_noise_quantum_environment import (
-    SpilloverNoiseQuantumEnvironment,
-)
 from gymnasium.wrappers import RescaleAction, ClipAction
-from ppoV2 import CustomPPOV2
-from helper_functions import load_from_yaml_file, save_to_pickle
+from gate_level.spillover_noise_use_case.spillover_noise_quantum_environment import SpilloverNoiseQuantumEnvironment
+from gymnasium.wrappers import RescaleAction, ClipAction
+from rl_qoc.helper_functions import load_from_yaml_file, save_to_pickle
 from gate_level_abstraction.spillover_noise_use_case.spillover_noise_q_env_config_function import (
     setup_spillover_noise_qenv_config,
 )
-from hyperparameter_optimization import HyperparameterOptimizer
-from hpo_training_config import (
+from rl_qoc import CustomPPO, HyperparameterOptimizer, QuantumEnvironment, ContextAwareQuantumEnvironment
+from rl_qoc.ppo_config import (
     TotalUpdates,
     HardwareRuntime,
     TrainingConfig,
     TrainFunctionSettings,
-    DirectoryPaths,
-    HardwarePenaltyWeights,
-    HPOConfig,
 )
+from rl_qoc.ppo_config import (
+    TotalUpdates,
+    HardwareRuntime,
+    TrainingConfig,
+    TrainFunctionSettings,
+)
+from rl_qoc.hpo_config import HardwarePenaltyWeights, HPOConfig, DirectoryPaths
 
+def get_saving_dir(hpo_mode: bool = False, phi_gamma_tuple: Optional[Tuple[float, float]] = None, base_dir: str = 'gate_level') -> str:
+    # Determine the folder based on the conditions
+    if phi_gamma_tuple is not None and not any(phi_gamma_tuple == 0):
+        # Noisy case
+        if hpo_mode:
+            target_folder = os.path.join(base_dir, 'spillover_noise_use_case', 'hpo_results')
+        else:
+            target_folder = os.path.join(base_dir, 'spillover_noise_use_case', 'calibration_results')
+    else:
+        # Noise-free case
+        if hpo_mode:
+            target_folder = os.path.join(base_dir, 'standard', 'hpo_results')
+        else:
+            target_folder = os.path.join(base_dir, 'standard', 'calibration_results')
+
+    return target_folder
 
 def get_environment(
     config_paths: Dict[str, str],
@@ -62,19 +78,16 @@ def get_environment(
             gate_q_env_config, circuit_context, phi_gamma_tuple
         )
     else:
-        from template_configurations.qiskit.gate_level import (
-            q_env_config as gate_q_env_config,
-            circuit_context,
-        )
+        from q_env_config import q_env_config as gate_q_env_config, circuit_context
 
         circuit_context.draw("mpl")
 
         if use_context:
-            q_env = ContextAwareQuantumEnvironmentV2(
+            q_env = ContextAwareQuantumEnvironment(
                 gate_q_env_config, circuit_context, training_steps_per_gate=250
             )
         else:
-            q_env = QuantumEnvironmentV2(gate_q_env_config)
+            q_env = QuantumEnvironment(gate_q_env_config)
 
     return RescaleAction(ClipAction(q_env), -1.0, 1.0)
 
@@ -107,7 +120,7 @@ def do_training(
 ):
     agent_config = load_from_yaml_file(agent_file_path)
 
-    ppo_agent = CustomPPOV2(agent_config, rescaled_env)
+    ppo_agent = CustomPPO(agent_config, rescaled_env)
 
     results = ppo_agent.train(
         training_config=training_config, train_function_settings=train_function_settings
@@ -155,7 +168,7 @@ def main(
             os.path.dirname(os.path.abspath(__file__)),
             config_paths["save_results_path"],
             rescaled_env.unwrapped.ident_str
-            + f'_timestamp_{datetime.now().strftime("%d-%m-%Y_%H-%M-%S")}.pickle.gzip',
+            + f'_timestamp_{datetime.now().strftime("%d-%m-%Y_%H-%M-%S")}.pickle.gz',
         )
         print('Saving to:', saving_path)
         save_to_pickle(training_results, saving_path)
@@ -163,15 +176,25 @@ def main(
 
 if __name__ == "__main__":
 
-    file_paths = {
-        "agent_config_file": "/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/template_configurations/agent_config.yaml",
-        "noise_q_env_config_file": "/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level_abstraction/spillover_noise_use_case/noise_q_env_gate_config.yml",
-        "save_results_path": "gate_calibration_results",
-    }
-
+    ################# TO BE SET BY USER #################
+    
     """ HPO Settings """
     hpo_mode = True
     num_hpo_trials = 2
+
+    """ Training Settings """
+    use_context = False # True
+    phi_gamma_tuple = None # (0.1*np.pi, 0.1)
+
+    ######################################################
+    
+    
+    
+    file_paths = {
+        "agent_config_file": "gate_level/standard/agent_config.yaml",
+        "noise_q_env_config_file": "gate_level/spillover_noise_use_case/noise_q_env_gate_config.yml",
+        "save_results_path": get_saving_dir(hpo_mode, phi_gamma_tuple, 'gate_level'),
+    }
 
     experimental_penalty_weights = HardwarePenaltyWeights(
         shots_penalty=0.01,
@@ -179,14 +202,10 @@ if __name__ == "__main__":
         fidelity_reward=2 * 1e4,
     )
     directory_paths = DirectoryPaths(
-        agent_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/template_configurations/agent_config.yaml",
-        hpo_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level_abstraction/spillover_noise_use_case/noise_hpo_config.yaml",
-        save_results_path="hpo_results",
+        agent_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level/spillover_noise_use_case/agent_config.yaml",
+        hpo_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level/spillover_noise_use_case/noise_hpo_config.yaml",
+        save_results_path=get_saving_dir(hpo_mode, phi_gamma_tuple, 'gate_level'),
     )
-
-    """ Training Settings """
-    use_context = False # True
-    phi_gamma_tuple = None # (0.1*np.pi, 0.1)
 
     total_updates = TotalUpdates(10)
     # hardware_runtime = HardwareRuntime(300)

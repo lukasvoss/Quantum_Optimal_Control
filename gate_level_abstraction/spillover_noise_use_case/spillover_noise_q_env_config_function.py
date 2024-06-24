@@ -3,7 +3,7 @@ from typing import Optional, Dict, List, Tuple
 import warnings
 import os
 import numpy as np
-from helper_functions import (
+from rl_qoc.helper_functions import (
     generate_default_instruction_durations_dict,
     select_backend,
     get_q_env_config,
@@ -20,7 +20,7 @@ from qiskit.providers.fake_provider import GenericBackendV2
 from qiskit.transpiler import InstructionDurations
 from qiskit.transpiler import CouplingMap
 
-from qconfig import QEnvConfig    
+from rl_qoc.qconfig import QEnvConfig    
 
 
 def setup_spillover_noise_qenv_config(phi_gamma_tuple: Tuple[float, float], config_file_path: str) -> Tuple[QEnvConfig, QuantumCircuit]:
