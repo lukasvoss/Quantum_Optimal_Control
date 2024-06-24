@@ -248,7 +248,7 @@ class HyperparameterOptimizer:
             + f"custom-cost-value-{round(self.best_trial.value, 6)}"
             + "_timestamp_"
             + datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-            + ".pickle.gzip"
+            + ".pickle.gz"
         )
 
     def _save_results(self):
