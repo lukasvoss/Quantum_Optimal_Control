@@ -1643,6 +1643,7 @@ def save_to_pickle(data, file_path: str) -> None:
         else:
             with open(file_path, "wb") as file:
                 pickle.dump(data, file)
+        logging.warning('File saved successfully to {}'.format(file_path))
     except Exception as e:
         logging.warning(f"Failed to save file {file_path}")
         logging.warning(f"Error Message: {e}")
@@ -1778,7 +1779,7 @@ def create_custom_file_name(config_path: str) -> str:
     reward_params = config['ENV']['REWARD_PARAMS']
 
     # Build the custom string based on the reward method
-    custom_string = f"target_{target_gate}_qubits_{physical_qubits[0]}-{physical_qubits[1]}_reward_{reward_method}"
+    custom_string = f"target_{target_gate}_qubits_{physical_qubits[0]}-{physical_qubits[1]}_reward_{reward_method.upper()}"
 
     # Add execution parameters
     custom_string += f"_paulis_{sampling_paulis}_shots_{n_shots}_reps_{n_reps}_batchsize_{batch_size}_seed_{seed}"
