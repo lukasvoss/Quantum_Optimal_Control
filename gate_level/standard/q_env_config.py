@@ -17,6 +17,11 @@ from qiskit.circuit import ParameterVector
 from qiskit.transpiler import InstructionDurations
 from qiskit.providers import BackendV2
 
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, coherent_unitary_error
+from qiskit.circuit.library import RXGate, RYGate, RZGate, SXGate, ZGate, SGate, SdgGate, HGate, CXGate, XGate, get_standard_gate_name_mapping as gate_map
+from qiskit.transpiler import CouplingMap
+
 current_dir = os.path.dirname(os.path.realpath(__file__))
 config_file_name = "q_env_gate_config.yml"
 config_file_address = os.path.join(current_dir, config_file_name)
@@ -102,43 +107,38 @@ def get_backend(
         # backend = FakeTorontoV2()
 
         # Coherent Noise: Overrotation of basis gates in AerSimulator (21 June 2024)
-        # def sx_overrotation_error(theta_error):
-        #     """Create an overrotation error unitary matrix for the SX gate."""
-        #     # Generate the over-rotation unitary
-        #     return expm(-1j * theta_error / 2 * XGate().to_matrix())# @ sx_matrix
+        def s_overrotation_error(theta_error):
+            """Create an overrotation error unitary matrix for the S gate (equivalent to a Z**0.5 = sqrtm(Z) rotation)."""
+            """ Induces a pi/2 phase """
+            return expm(-1j * theta_error / 2 * ZGate().to_matrix())
 
-        # def s_overrotation_error(theta_error):
-        #     """Create an overrotation error unitary matrix for the S gate (equivalent to a Z**0.5 = sqrtm(Z) rotation)."""
-        #     """ Induces a pi/2 phase """
-        #     return expm(-1j * theta_error / 2 * ZGate().to_matrix())
+        def sdg_overrotation_error(theta_error):
+            """Create an overrotation error unitary matrix for the Sdg gate (equivalent to a -Z rotation)."""
+            """ Induces a -pi/2 phase """
+            return s_overrotation_error(-theta_error)
 
-        # def sdg_overrotation_error(theta_error):
-        #     """Create an overrotation error unitary matrix for the Sdg gate (equivalent to a -Z rotation)."""
-        #     """ Induces a -pi/2 phase """
-        #     return s_overrotation_error(-theta_error)
+        # # Define the small overrotation angle (in radians): 1 radian = 180/pi degrees = 57.3 degrees
+        theta_error = 0.1 # radians = 5.7 degrees
 
-        # # # Define the small overrotation angle (in radians): 1 radian = 180/pi degrees = 57.3 degrees
-        # theta_error = 0.1 # radians = 5.7 degrees
+        # # Define the noise model
+        noise_model = NoiseModel()
 
-        # # # Define the noise model
-        # noise_model = NoiseModel()
+        # Add the overrotation errors for each gate
+        x_error = coherent_unitary_error(RXGate(theta_error))
+        sx_error = coherent_unitary_error(RXGate(theta_error))
+        y_error = coherent_unitary_error(RYGate(theta_error))
+        s_error = coherent_unitary_error(s_overrotation_error(theta_error))
+        sdg_error = coherent_unitary_error(sdg_overrotation_error(theta_error))
 
-        # # Add the overrotation errors for each gate
-        # x_error = coherent_unitary_error(RXGate(theta_error))
-        # sx_error = coherent_unitary_error(sx_overrotation_error(theta_error))
-        # y_error = coherent_unitary_error(RYGate(theta_error))
-        # s_error = coherent_unitary_error(s_overrotation_error(theta_error))
-        # sdg_error = coherent_unitary_error(sdg_overrotation_error(theta_error))
-
-        # for qbit in range(5):
-        #     noise_model.add_quantum_error(x_error, ['x'], [qbit])
-        #     noise_model.add_quantum_error(x_error, ['sx'], [qbit])
-        #     noise_model.add_quantum_error(y_error, ['y'], [qbit])
-        #     noise_model.add_quantum_error(s_error, ['s'], [qbit])
-        #     noise_model.add_quantum_error(sdg_error, ['sdg'], [qbit])
+        for qbit in range(5):
+            noise_model.add_quantum_error(x_error, ['x'], [qbit])
+            noise_model.add_quantum_error(sx_error, ['sx'], [qbit])
+            noise_model.add_quantum_error(y_error, ['y'], [qbit])
+            noise_model.add_quantum_error(s_error, ['s'], [qbit])
+            noise_model.add_quantum_error(sdg_error, ['sdg'], [qbit])
         
-        # backend = AerSimulator(noise_model=noise_model, coupling_map=CouplingMap.from_full(2), enable_truncation=True) 
-        # warnings.warn("No backend was provided, AerSimulator with coherent noise will be used")
+        backend = AerSimulator(noise_model=noise_model, coupling_map=CouplingMap.from_full(2), enable_truncation=True) 
+        warnings.warn("No backend was provided, AerSimulator with coherent noise will be used")
 
     if backend is None:
         warnings.warn("No backend was provided, State vector simulation will be used")

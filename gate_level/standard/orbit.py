@@ -48,7 +48,6 @@ class ORBIT:
     ):
         self.rb_length = rb_length
         self.num_sequences = num_sequences
-        self.seed = q_env.seed
         self.q_env = q_env
         assert isinstance(
             q_env.target, GateTarget
@@ -94,7 +93,7 @@ class ORBIT:
             run_qc = QuantumCircuit(*circuit.qregs)
             ref_qc = QuantumCircuit(*circuit_ref.qregs)
             for l in range(self.rb_length):
-                r_cliff = random_clifford(self.q_env.n_qubits, self.q_env.seed)
+                r_cliff = random_clifford(self.q_env.n_qubits) # , self.q_env.seed)
                 for qc, context in zip([run_qc, ref_qc], [circuit, circuit_ref]):
                     qc.compose(r_cliff.to_circuit(), inplace=True)
                     qc.barrier()

@@ -17,7 +17,7 @@ if module_path not in sys.path:
 from gymnasium.wrappers import RescaleAction, ClipAction
 from gate_level.spillover_noise_use_case.spillover_noise_quantum_environment import SpilloverNoiseQuantumEnvironment
 from gymnasium.wrappers import RescaleAction, ClipAction
-from rl_qoc.helper_functions import load_from_yaml_file, save_to_pickle
+from rl_qoc.helper_functions import create_custom_file_name, load_from_yaml_file, save_to_pickle
 from gate_level_abstraction.spillover_noise_use_case.spillover_noise_q_env_config_function import (
     setup_spillover_noise_qenv_config,
 )
@@ -36,7 +36,7 @@ from rl_qoc.ppo_config import (
 )
 from rl_qoc.hpo_config import HardwarePenaltyWeights, HPOConfig, DirectoryPaths
 
-def get_saving_dir(hpo_mode: bool = False, phi_gamma_tuple: Optional[Tuple[float, float]] = None, base_dir: str = 'gate_level') -> str:
+def get_saving_dir(hpo_mode: bool = False, phi_gamma_tuple: Optional[Tuple[float, float]] = None, base_dir: str = '/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level') -> str:
     # Determine the folder based on the conditions
     if phi_gamma_tuple is not None and not any(phi_gamma_tuple == 0):
         # Noisy case
@@ -164,13 +164,16 @@ def main(
         training_results = do_training(
             rescaled_env, training_config, train_function_settings, config_paths['agent_config_file']
         )
+
+        custom_saving_file_name = constraint_str + create_custom_file_name(config_paths["q_env_config_file"])
+
         saving_path = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            config_paths["save_results_path"],
-            rescaled_env.unwrapped.ident_str
-            + f'_timestamp_{datetime.now().strftime("%d-%m-%Y_%H-%M-%S")}.pickle.gz',
+            config_paths["save_results_dir"],
+            custom_saving_file_name +
+            f'_timestamp_{datetime.now().strftime("%d-%m-%Y_%H-%M-%S")}.pickle.gz',
         )
         print('Saving to:', saving_path)
+        print('Results:', training_results)
         save_to_pickle(training_results, saving_path)
 
 
@@ -179,7 +182,7 @@ if __name__ == "__main__":
     ################# TO BE SET BY USER #################
     
     """ HPO Settings """
-    hpo_mode = True
+    hpo_mode = False
     num_hpo_trials = 2
 
     """ Training Settings """
@@ -192,8 +195,9 @@ if __name__ == "__main__":
     
     file_paths = {
         "agent_config_file": "gate_level/standard/agent_config.yaml",
+        "q_env_config_file": "gate_level/standard/q_env_gate_config.yml",
         "noise_q_env_config_file": "gate_level/spillover_noise_use_case/noise_q_env_gate_config.yml",
-        "save_results_path": get_saving_dir(hpo_mode, phi_gamma_tuple, 'gate_level'),
+        "save_results_dir": get_saving_dir(hpo_mode, phi_gamma_tuple, 'gate_level'),
     }
 
     experimental_penalty_weights = HardwarePenaltyWeights(
@@ -202,13 +206,13 @@ if __name__ == "__main__":
         fidelity_reward=2 * 1e4,
     )
     directory_paths = DirectoryPaths(
-        agent_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level/spillover_noise_use_case/agent_config.yaml",
-        hpo_config_path="/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level/spillover_noise_use_case/noise_hpo_config.yaml",
-        save_results_path=get_saving_dir(hpo_mode, phi_gamma_tuple, 'gate_level'),
+        agent_config_path="gate_level/spillover_noise_use_case/agent_config.yaml",
+        hpo_config_path="gate_level/spillover_noise_use_case/noise_hpo_config.yaml",
+        save_results_path=get_saving_dir(hpo_mode, phi_gamma_tuple),
     )
 
     total_updates = TotalUpdates(10)
-    # hardware_runtime = HardwareRuntime(300)
+    hardware_runtime = HardwareRuntime(300)
     training_config = TrainingConfig(
         training_constraint=total_updates,
         target_fidelities=[0.999, 0.9999],
@@ -216,11 +220,12 @@ if __name__ == "__main__":
         anneal_learning_rate=False,
         std_actions_eps=1e-2,
     )
+    constraint_str = f'updates_{total_updates.total_updates}_' if isinstance(training_config.training_constraint, TotalUpdates) else f'runtime_{hardware_runtime.hardware_runtime}s_'
     train_function_settings = TrainFunctionSettings(
         plot_real_time=False,
         print_debug=True,
         num_prints=1,
-        hpo_mode=False,
+        hpo_mode=hpo_mode,
         clear_history=True,
     )
 
@@ -230,6 +235,7 @@ if __name__ == "__main__":
         file_paths,
         use_context,
         phi_gamma_tuple,
+        constraint_str=constraint_str,
         hpo_mode=hpo_mode,
         num_hpo_trials=num_hpo_trials,
         experimental_penalty_weights=experimental_penalty_weights,

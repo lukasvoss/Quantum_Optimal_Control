@@ -413,7 +413,7 @@ class QiskitBackendInfo:
         return (
             self.backend.instruction_durations
             if self.backend is not None
-            and not self.backend.instruction_durations.duration_by_name_qubits
+            and self.backend.instruction_durations.duration_by_name_qubits
             else self._instruction_durations
         )
 
