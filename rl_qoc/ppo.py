@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import time
 from matplotlib.ticker import MaxNLocator
 import numpy as np
@@ -818,7 +819,9 @@ class CustomPPO:
     ):
         return {
             "env_ident_str": self.env.unwrapped.ident_str,
-            "reward_method": self.env.unwrapped.config.reward_config.reward_method,
+            "reward_config": asdict(self.env.unwrapped.config.reward_config),
+            "execution_config": asdict(self.env.unwrapped.config.execution_config),
+            "q_env_config": asdict(self.env.unwrapped.config),
             "training_constraint": self.training_constraint,
             "avg_reward": avg_reward,
             "std_action": std_actions,
