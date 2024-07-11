@@ -599,10 +599,12 @@ def optimize_policy_and_value_network(
     return pg_loss, entropy_loss, v_loss, approx_kl, old_approx_kl, clipfracs
 
 
-def print_debug_info(env, mean_action, std_action, b_returns, b_advantages):
+def print_debug_info(env, mean_action, std_action, b_returns, b_advantages, hpo_trial_number=None):
     """
     Print debug information for the training process.
     """
+    if hpo_trial_number is not None:
+        print(f"HPO Trial Number: {hpo_trial_number+1}")
     print("mean", mean_action[0])
     print("sigma", std_action[0])
     print(
@@ -821,7 +823,7 @@ class CustomPPO:
             "env_ident_str": self.env.unwrapped.ident_str,
             "reward_config": asdict(self.env.unwrapped.config.reward_config),
             "execution_config": asdict(self.env.unwrapped.config.execution_config),
-            "q_env_config": asdict(self.env.unwrapped.config),
+            # "q_env_config": asdict(self.env.unwrapped.config),
             "training_constraint": self.training_constraint,
             "avg_reward": avg_reward,
             "std_action": std_actions,
@@ -839,6 +841,7 @@ class CustomPPO:
         self,
         training_config: TrainingConfig,
         train_function_settings: TrainFunctionSettings,
+        **kwargs,
     ):
         """
         Trains the model using Proximal Policy Optimization (PPO) algorithm.
@@ -854,6 +857,8 @@ class CustomPPO:
         """
         self.training_config = training_config
         self.train_function_settings = train_function_settings
+
+        hpo_trial_number = kwargs.get("hpo_trial_number", None)
 
         try:
             fidelity_info = {
@@ -901,6 +906,7 @@ class CustomPPO:
                         std_actions,
                         fidelity_info,
                         start_time,
+                        hpo_trial_number=hpo_trial_number,
                     ):
                         break
 
@@ -923,6 +929,7 @@ class CustomPPO:
                         std_actions,
                         fidelity_info,
                         start_time,
+                        hpo_trial_number=hpo_trial_number
                     ):
                         break
 
@@ -938,7 +945,7 @@ class CustomPPO:
                 logging.error(f"An error occurred during training: {e}")
                 return {
                     "avg_reward": -1.0,
-                    "fidelity_history": [0] * self.total_updates,
+                    "fidelity_history": [0],
                 }
             else:  # Raise the error for debugging in the normal mode
                 raise
@@ -946,6 +953,7 @@ class CustomPPO:
     def perform_training_iteration(
         self,
         num_prints,
+        hpo_trial_number=None,
     ):
         """
         Perform a single training iteration of the Proximal Policy Optimization (PPO) algorithm.
@@ -1042,7 +1050,7 @@ class CustomPPO:
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         if self.print_debug:
-            print_debug_info(self.env, mean_action, std_action, b_returns, b_advantages)
+            print_debug_info(self.env, mean_action, std_action, b_returns, b_advantages, hpo_trial_number=hpo_trial_number)
 
         if self.global_step % num_prints == 0:
             clear_output(wait=True)
@@ -1075,11 +1083,12 @@ class CustomPPO:
         std_actions,
         fidelity_info,
         start_time,
+        hpo_trial_number=None,
     ):
         if self.anneal_learning_rate:
             self.learning_rate_annealing(iteration=iteration)
 
-        mean_action, std_action = self.perform_training_iteration(num_prints)
+        mean_action, std_action = self.perform_training_iteration(num_prints, hpo_trial_number=hpo_trial_number)
 
         update_metric_lists(
             self.env,

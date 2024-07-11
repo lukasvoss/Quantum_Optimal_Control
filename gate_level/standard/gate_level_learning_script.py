@@ -38,7 +38,7 @@ from rl_qoc.hpo_config import HardwarePenaltyWeights, HPOConfig, DirectoryPaths
 
 def get_saving_dir(hpo_mode: bool = False, phi_gamma_tuple: Optional[Tuple[float, float]] = None, base_dir: str = '/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level') -> str:
     # Determine the folder based on the conditions
-    if phi_gamma_tuple is not None and not any(phi_gamma_tuple == 0):
+    if phi_gamma_tuple is not None and not any(x == 0 for x in phi_gamma_tuple):
         # Noisy case
         if hpo_mode:
             target_folder = os.path.join(base_dir, 'spillover_noise_use_case', 'hpo_results')
@@ -181,13 +181,13 @@ if __name__ == "__main__":
 
     ################# TO BE SET BY USER #################
     
-    """ HPO Settings """
-    hpo_mode = False
-    num_hpo_trials = 2
+    """ HPO Settings """  # Cost Function has been changed to infidelity; n_reps hardcoded to 1
+    hpo_mode = True
+    num_hpo_trials = 20
 
     """ Training Settings """
-    use_context = False # True
-    phi_gamma_tuple = None # (0.1*np.pi, 0.1)
+    use_context = True # False
+    phi_gamma_tuple = (0.5*np.pi, 0.025) # None
 
     ######################################################
     
@@ -211,10 +211,10 @@ if __name__ == "__main__":
         save_results_path=get_saving_dir(hpo_mode, phi_gamma_tuple),
     )
 
-    total_updates = TotalUpdates(10)
-    hardware_runtime = HardwareRuntime(300)
+    total_updates = TotalUpdates(25)
+    hardware_runtime = HardwareRuntime(600)
     training_config = TrainingConfig(
-        training_constraint=total_updates,
+        training_constraint=hardware_runtime,
         target_fidelities=[0.999, 0.9999],
         lookback_window=10,
         anneal_learning_rate=False,

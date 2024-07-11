@@ -55,11 +55,11 @@ ENV: # Environment configuration
     N_SHOTS: 1024 # Number of shots for each Pauli
     N_REPS: 1 # Number of repetitions for the fidelity benchmarking
     C_FACTOR: 1. # Cost factor for the reward function
-    BATCH_SIZE: 256 # Number of actions to evaluate per policy iteration
+    BATCH_SIZE: 32 # Number of actions to evaluate per policy iteration
     SEED: 100
   ACTION_SPACE:
-    LOW: [ -0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1 ]
-    HIGH: [ 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1 ]
+    LOW: [-0.1, -0.1, -0.1, -0.1, -0.1, -0.1, -0.1]
+    HIGH: [0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1]
   REWARD:
     REWARD_METHOD: "state" # Choose between "fidelity", "state", "channel", "xeb", "cafe"
   REWARD_PARAMS: # All unused parameters should be set to null (only assign values to parameters used by chosen reward method)

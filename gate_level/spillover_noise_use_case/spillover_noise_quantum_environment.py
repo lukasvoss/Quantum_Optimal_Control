@@ -62,7 +62,7 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
     def get_n_reps(self, target_fidelities):
         baseline_fidelity = self.get_baseline_fid_from_phi_gamma()
         # To which integer power do I need to raise baseline_fidelity to be below the lowest target fidelity?
-        smallest_N_reps = math.ceil(math.log(min(target_fidelities), baseline_fidelity))
+        smallest_N_reps = 1 # math.ceil(math.log(min(target_fidelities), baseline_fidelity))
         if smallest_N_reps == 150:
             logging.warning(
                 "WARNING: n_reps set to max value of 150. Consider increasing noise strength."

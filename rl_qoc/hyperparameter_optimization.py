@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import sys
 import os
 
@@ -158,12 +159,19 @@ class HyperparameterOptimizer:
         self.q_env.unwrapped.n_shots = self.agent_config["N_SHOTS"]
         self.q_env.unwrapped.sampling_Pauli_space = self.agent_config["SAMPLE_PAULIS"]
 
+        print("MINIBATCH_SIZE", self.agent_config["MINIBATCH_SIZE"]) 
+        print("NUM_MINIBATCHES", self.agent_config["NUM_MINIBATCHES"])
+        print("BATCHSIZE", self.agent_config["BATCHSIZE"])
+        print("N_SHOTS", self.agent_config["N_SHOTS"])
+        print("SAMPLE_PAULIS", self.agent_config["SAMPLE_PAULIS"])
+
         # train_fn = make_train_ppo(self.agent_config, self.q_env, hpo_mode=True)
         ppo_agent = CustomPPO(self.agent_config, self.q_env)
         start_time = time.time()
         training_results = ppo_agent.train(
             training_config=self.training_config,
             train_function_settings=self.train_function_settings,
+            hpo_trial_number=trial.number,
         )
 
         simulation_training_time = time.time() - start_time
@@ -239,12 +247,17 @@ class HyperparameterOptimizer:
                 closeness = fidelity - highest_fidelity_reached
                 total_cost += closeness * self.penalty_per_missed_fidelity
 
-        return total_cost
+        # return total_cost
+        return 1.0 - max(training_results["fidelity_history"]) # Infidelity
 
     def _generate_filename(self):
         """Generate the file name where the best configuration will be saved."""
+        reward_info = [f"{key}-{value}" for key, value in asdict(self.q_env.unwrapped.config.reward_config).items()]
+        reward_info_str = "_".join(reward_info)
+
         return (
             f"{self.q_env.unwrapped.ident_str}_{self.training_constraint}_"
+            + f"{reward_info_str}_"
             + f"custom-cost-value-{round(self.best_trial.value, 6)}"
             + "_timestamp_"
             + datetime.now().strftime("%d-%m-%Y_%H-%M-%S")

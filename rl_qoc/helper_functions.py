@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import os
 import sys
 import pickle
@@ -1680,11 +1681,14 @@ def create_hpo_agent_config(
             hyper_params[param] = values
 
     # Dynamically calculate batchsize from minibatch_size and num_minibatches
-    print("MINIBATCH_SIZE", hyper_params["MINIBATCH_SIZE"])
-    print("NUM_MINIBATCHES", hyper_params["NUM_MINIBATCHES"])
+    # print("MINIBATCH_SIZE", hyper_params["MINIBATCH_SIZE"]) if "MINIBATCH_SIZE" in hyper_params else None
+    # print("NUM_MINIBATCHES", hyper_params["NUM_MINIBATCHES"]) if "NUM_MINIBATCHES" in hyper_params else None
     hyper_params["BATCHSIZE"] = (
         hyper_params["MINIBATCH_SIZE"] * hyper_params["NUM_MINIBATCHES"]
-    )
+    ) if "MINIBATCH_SIZE" in hyper_params and "NUM_MINIBATCHES" in hyper_params else None
+    # print("BATCHSIZE", hyper_params["BATCHSIZE"])
+    # print("N_SHOTS", hyper_params["N_SHOTS"]) if "N_SHOTS" in hyper_params else None
+    # print("SAMPLE_PAULIS", hyper_params["SAMPLING_PAULIS"]) if "SAMPLING_PAULIS" in hyper_params else None
 
     # Print hyperparameters considered for HPO
     print("Hyperparameters considered for HPO:", hyperparams_in_scope)
@@ -1697,7 +1701,7 @@ def create_hpo_agent_config(
 
     # Take over attributes from agent_config and populate hyper_params
     agent_config = load_from_yaml_file(path_to_agent_config)
-    final_config = hyper_params.copy()
+    final_config = deepcopy(hyper_params)
     final_config.update(agent_config)
     final_config.update(hyper_params)
 
