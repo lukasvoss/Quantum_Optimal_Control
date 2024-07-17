@@ -107,6 +107,8 @@ def get_backend(
     ### Custom spillover noise model ###
     global phi, gamma, custom_rx_gate_label
 
+    n_qubits = 2
+
     identity_op = Operator(IGate())
     rx_phi_gamma_op = Operator(RXGate(gamma * phi))
     ident_rx_op = rx_phi_gamma_op.tensor(identity_op)
@@ -115,20 +117,26 @@ def get_backend(
     coherent_rx_noise = noise.coherent_unitary_error(ident_rx_op)
     noise_model.add_quantum_error(coherent_rx_noise, [custom_rx_gate_label], [0, 1])
     noise_model.add_basis_gates(["unitary"])
+
+    from qiskit_aer.noise import ReadoutError, reset_error    
+    p0given1 = 0.0138 # IBM Sherbrooke
+    p1given0 = 0.0116 # IBM Sherbrooke
+    readout_error_matrix = ReadoutError([[1 - p1given0, p1given0], [p0given1, 1 - p0given1]])
+    noise_model.add_all_qubit_readout_error(readout_error_matrix, "measure")
+
+    noise_model.add_all_qubit_quantum_error(reset_error(0.01), "reset")
+
     print("\n", noise_model, "\n")
 
     generic_backend = GenericBackendV2(
-        num_qubits=2,
+        num_qubits=n_qubits,
         dtm=2.2222 * 1e-10,
         basis_gates=["cx", "id", "rz", "sx", "x", "crx"],
     )
     # backend = AerSimulator.from_backend(generic_backend, noise_model=noise_model)
     backend = AerSimulator(
-        noise_model=noise_model, coupling_map=CouplingMap.from_full(5)
+        noise_model=noise_model, coupling_map=CouplingMap.from_full(n_qubits)
     )
-    #     coupling_map=CouplingMap.from_full(5),
-    #     method="density_matrix"
-    # )
 
     if backend is None:
         # TODO: Add here your custom backend
@@ -143,8 +151,8 @@ def get_backend(
 
 
 # Custom spillover noise model
-phi = np.pi / 4  # rotation angle
-gamma = 0.01  # spillover rate for the CRX gate
+phi = np.pi / 2  # rotation angle
+gamma = 0.025  # spillover rate for the CRX gate
 custom_rx_gate_label = "custom_kron(rx,ident)_gate"
 
 
@@ -168,8 +176,8 @@ def get_circuit_context(
 
     if backend is not None:
         circuit = transpile(circuit, backend, optimization_level=1, seed_transpiler=42)
-    print("Circuit context")
-    print(circuit)
+    # print("Circuit context")
+    # print(circuit)
     return circuit
 
 

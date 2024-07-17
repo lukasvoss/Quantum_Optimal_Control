@@ -285,6 +285,11 @@ def plot_curves(env: BaseQuantumEnvironment):
         env.fidelity_history,
         label=f"Circuit Fidelity",
     )
+    plt.plot(
+        fidelity_range,
+        env.fidelity_history_nreps,
+        label=f"Circuit Fidelity (N Reps={env.n_reps})",
+    )
 
     plt.title("Reward History")
     plt.legend()
@@ -309,6 +314,7 @@ def get_empty_tensors(env, num_time_steps, batchsize):
 
     avg_reward = []
     fidelities = []
+    fidelities_nreps = []
     std_actions = []
     avg_action_history = []
     return (
@@ -320,6 +326,7 @@ def get_empty_tensors(env, num_time_steps, batchsize):
         values,
         avg_reward,
         fidelities,
+        fidelities_nreps,
         std_actions,
         avg_action_history,
     )
@@ -680,6 +687,7 @@ def update_metric_lists(
     std_action,
     avg_reward,
     fidelities,
+    fidelities_nreps,
     avg_action_history,
     std_actions,
 ):
@@ -689,6 +697,7 @@ def update_metric_lists(
     avg_reward.append(np.mean(env.unwrapped.reward_history, axis=1)[-1])
     if len(env.unwrapped.fidelity_history) > 0:
         fidelities.append(env.unwrapped.fidelity_history[-1])
+        fidelities_nreps.append(env.unwrapped.fidelity_history_nreps[-1])
     avg_action_history.append(mean_action[0].numpy())
     std_actions.append(std_action[0].numpy())
 
@@ -815,6 +824,7 @@ class CustomPPO:
         avg_reward,
         std_actions,
         fidelities,
+        fidelities_nreps,
         avg_action_history,
         iteration,
         fidelity_info,
@@ -828,6 +838,7 @@ class CustomPPO:
             "avg_reward": avg_reward,
             "std_action": std_actions,
             "fidelity_history": fidelities,
+            "fidelity_history_nreps": fidelities_nreps,
             "hardware_runtime": self.env.unwrapped.hardware_runtime,
             "action_history": avg_action_history,
             "best_action_vector": self.env.unwrapped.optimal_action,
@@ -886,6 +897,7 @@ class CustomPPO:
                 self.values,
                 avg_reward,
                 fidelities,
+                fidelities_nreps,
                 std_actions,
                 avg_action_history,
             ) = get_empty_tensors(self.env, self.num_time_steps, self.batchsize)
@@ -902,6 +914,7 @@ class CustomPPO:
                         self.num_prints,
                         avg_reward,
                         fidelities,
+                        fidelities_nreps,
                         avg_action_history,
                         std_actions,
                         fidelity_info,
@@ -925,6 +938,7 @@ class CustomPPO:
                         self.num_prints,
                         avg_reward,
                         fidelities,
+                        fidelities_nreps,
                         avg_action_history,
                         std_actions,
                         fidelity_info,
@@ -1079,6 +1093,7 @@ class CustomPPO:
         num_prints,
         avg_reward,
         fidelities,
+        fidelities_nreps,
         avg_action_history,
         std_actions,
         fidelity_info,
@@ -1096,6 +1111,7 @@ class CustomPPO:
             std_action,
             avg_reward,
             fidelities,
+            fidelities_nreps,
             avg_action_history,
             std_actions,
         )
@@ -1117,6 +1133,7 @@ class CustomPPO:
             avg_reward,
             std_actions,
             fidelities,
+            fidelities_nreps,
             avg_action_history,
             iteration,
             fidelity_info,
@@ -1155,15 +1172,25 @@ class CustomPPO:
             iteration: The current iteration number (optional).
             max_hardware_runtime: The maximum hardware runtime (optional).
         """
+        min_lr = 1e-5
+
         if isinstance(self.training_constraint, TotalUpdates):
             frac = 1.0 - (iteration - 1.0) / self.training_constraint.total_updates
+            # if iteration <= 1:
+            #     iteration = 1
+            # frac = np.log(self.training_constraint.total_updates / iteration) / np.log(self.training_constraint.total_updates)
         elif isinstance(self.training_constraint, HardwareRuntime):
+            current_runtime = np.sum(self.env.unwrapped.hardware_runtime)
+            total_runtime = self.training_constraint.hardware_runtime
             frac = 1.0 - (
-                np.sum(self.env.unwrapped.hardware_runtime)
-                / self.training_constraint.hardware_runtime
+                current_runtime
+                / total_runtime
             )
+            # if current_runtime <= 0:
+            #     current_runtime = 1e-10
+            # frac = np.log(total_runtime / current_runtime) / np.log(total_runtime)
         lrnow = frac * self.lr
-        self.optimizer.param_groups[0]["lr"] = lrnow
+        self.optimizer.param_groups[0]["lr"] = max(lrnow, min_lr)
 
     @property
     def training_results(self):

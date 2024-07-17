@@ -85,6 +85,7 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
         self._training_steps_per_gate = training_steps_per_gate
         self._intermediate_rewards = intermediate_rewards
         self.circuit_fidelity_history = []
+        self.circuit_fidelity_history_nreps = []
         self.circuit_context = circuit_context
         # Define target register and nearest neighbor register for truncated circuits
         self.circ_tgt_register = QuantumRegister(
@@ -395,12 +396,20 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
         :param params: Batch of actions
         """
         new_qc = qc.copy()
+        n_reps_qc = qc.copy()
+        for _ in range(self._training_config.n_reps - 1):
+            n_reps_qc = n_reps_qc.compose(new_qc)
+
         n_actions = self.action_space.shape[-1]
         n_custom_instructions = (
             self.trunc_index + 1
         )  # Count custom instructions present in the current truncation
         baseline_circ = self.baseline_circuits[self.trunc_index]
         target = Statevector(baseline_circ)
+
+        baseline_circ_nreps = baseline_circ.copy()
+        for _ in range(self._training_config.n_reps - 1):
+            baseline_circ_nreps = baseline_circ_nreps.compose(baseline_circ)
 
         if (
             self.config.check_on_exp
@@ -475,6 +484,9 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                     )
                 new_qc.save_density_matrix()
                 circ = transpile(new_qc, backend=backend, optimization_level=0)
+                
+                n_reps_qc.save_density_matrix() # Check circuit with n_reps > 1
+                circ_nreps = transpile(n_reps_qc, backend=backend, optimization_level=0)
 
                 states_result = backend.run(
                     circ,
@@ -488,6 +500,21 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                 ).result()
                 output_states = [
                     states_result.data(i)["density_matrix"]
+                    for i in range(self.batch_size)
+                ]
+
+                states_result_nreps = backend.run(
+                    circ_nreps,
+                    parameter_binds=[
+                        {
+                            self._parameters[i][j]: params[:, i * n_actions + j]
+                            for i in range(n_custom_instructions)
+                            for j in range(n_actions)
+                        }
+                    ],
+                ).result()
+                output_states_nreps = [
+                    states_result_nreps.data(i)["density_matrix"]
                     for i in range(self.batch_size)
                 ]
 
@@ -515,13 +542,19 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                 state_fidelity(state, Statevector(baseline_circ))
                 for state in output_states
             ]
+            circuit_fidelities_nreps = [
+                state_fidelity(state, Statevector(baseline_circ_nreps))
+                for state in output_states_nreps
+            ]
             # circuit_fidelities = [state_fidelity(partial_trace(state,
             #                                                    list(range(state.num_qubits))[target.num_qubits:]),
             #                                      partial_trace(Statevector(baseline_circ),
             #                                                    list(range(state.num_qubits))[target.num_qubits:]))
             #                       for state in output_states]
         self.circuit_fidelity_history.append(np.mean(circuit_fidelities))
+        self.circuit_fidelity_history_nreps.append(np.mean(circuit_fidelities_nreps))
         print("Fidelity stored", self.circuit_fidelity_history[-1])
+        print("Fidelity N-REPS", self.circuit_fidelity_history_nreps[-1])
         return circuit_fidelities
 
     @property
@@ -531,6 +564,10 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
     @property
     def fidelity_history(self):
         return self.circuit_fidelity_history
+
+    @property
+    def fidelity_history_nreps(self):
+        return self.circuit_fidelity_history_nreps
 
     @property
     def tgt_instruction_counts(self) -> int:

@@ -87,9 +87,10 @@ class HyperparameterOptimizer:
             direction="minimize",
             study_name=f'{self._get_study_name()}_{datetime.now().strftime("%d-%m-%Y_%H:%M:%S")}',
         )
-        self.q_env.unwrapped.modify_environment_params(
-            target_fidelities=self.target_fidelities
-        )
+        # XXX: Temporarly disable automatic setting of n_reps due to issues in traning progress (11 July 2024)
+        # self.q_env.unwrapped.modify_environment_params(
+        #     target_fidelities=self.target_fidelities
+        # )
 
         self._log_training_parameters()
         time.sleep(4)

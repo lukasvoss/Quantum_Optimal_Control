@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import sys
 import os
 import time
@@ -39,19 +40,19 @@ from rl_qoc.hpo_config import HardwarePenaltyWeights, HPOConfig, DirectoryPaths
 def get_saving_dir(hpo_mode: bool = False, phi_gamma_tuple: Optional[Tuple[float, float]] = None, base_dir: str = '/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/gate_level') -> str:
     # Determine the folder based on the conditions
     if phi_gamma_tuple is not None and not any(x == 0 for x in phi_gamma_tuple):
-        # Noisy case
-        if hpo_mode:
-            target_folder = os.path.join(base_dir, 'spillover_noise_use_case', 'hpo_results')
-        else:
-            target_folder = os.path.join(base_dir, 'spillover_noise_use_case', 'calibration_results')
+        parent_folder = 'spillover_noise_use_case'
     else:
-        # Noise-free case
-        if hpo_mode:
-            target_folder = os.path.join(base_dir, 'standard', 'hpo_results')
-        else:
-            target_folder = os.path.join(base_dir, 'standard', 'calibration_results')
+        parent_folder = 'standard'
+    child_folder = 'hpo_results' if hpo_mode else 'calibration_results'
+    return os.path.join(base_dir, parent_folder, child_folder)
 
-    return target_folder
+def print_env_info(q_env):
+
+    print("\nEnvironment Information")
+    print("----------------------------------------\n")
+    print(f"Reward Settings:  {asdict(q_env.unwrapped.config.reward_config)}\n")
+    print(f"Execution Settings:  {asdict(q_env.unwrapped.config.execution_config)}\n")
+    time.sleep(4)
 
 def get_environment(
     config_paths: Dict[str, str],
@@ -80,14 +81,14 @@ def get_environment(
     else:
         from q_env_config import q_env_config as gate_q_env_config, circuit_context
 
-        circuit_context.draw("mpl")
-
         if use_context:
             q_env = ContextAwareQuantumEnvironment(
                 gate_q_env_config, circuit_context, training_steps_per_gate=250
             )
         else:
             q_env = QuantumEnvironment(gate_q_env_config)
+
+    print_env_info(q_env)
 
     return RescaleAction(ClipAction(q_env), -1.0, 1.0)
 
@@ -181,13 +182,13 @@ if __name__ == "__main__":
 
     ################# TO BE SET BY USER #################
     
-    """ HPO Settings """  # Cost Function has been changed to infidelity; n_reps hardcoded to 1
-    hpo_mode = True
+    """ HPO Settings """  # Cost Function has been changed to infidelity; n_reps hardcoded to 1 (only for automatic calculation of nreps due to noise)
+    hpo_mode = False
     num_hpo_trials = 20
 
     """ Training Settings """
     use_context = True # False
-    phi_gamma_tuple = (0.5*np.pi, 0.025) # None
+    phi_gamma_tuple = (np.pi/4, 0.025) # None
 
     ######################################################
     
@@ -211,14 +212,14 @@ if __name__ == "__main__":
         save_results_path=get_saving_dir(hpo_mode, phi_gamma_tuple),
     )
 
-    total_updates = TotalUpdates(25)
-    hardware_runtime = HardwareRuntime(600)
+    total_updates = TotalUpdates(250)
+    hardware_runtime = HardwareRuntime(300)
     training_config = TrainingConfig(
-        training_constraint=hardware_runtime,
-        target_fidelities=[0.999, 0.9999],
+        training_constraint=total_updates,
+        target_fidelities=[0.999, 0.9999, 0.99999],
         lookback_window=10,
         anneal_learning_rate=False,
-        std_actions_eps=1e-2,
+        std_actions_eps=2.5e-2,
     )
     constraint_str = f'updates_{total_updates.total_updates}_' if isinstance(training_config.training_constraint, TotalUpdates) else f'runtime_{hardware_runtime.hardware_runtime}s_'
     train_function_settings = TrainFunctionSettings(
