@@ -21,7 +21,7 @@ from qiskit.circuit import (
     ParameterVector,
     CircuitInstruction,
 )
-from qiskit.quantum_info import state_fidelity, Statevector
+from qiskit.quantum_info import Statevector, Operator, state_fidelity, average_gate_fidelity
 from qiskit.transpiler import Layout
 from qiskit_aer.backends import AerSimulator
 from qiskit_aer.backends.aerbackend import AerBackend
@@ -480,12 +480,12 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                 else:
                     noise_model = NoiseModel.from_backend(self.backend)
                     backend = AerSimulator(
-                        noise_model=noise_model, method="density_matrix"
+                        noise_model=noise_model, method="superop" # "density_matrix"
                     )
-                new_qc.save_density_matrix()
+                new_qc.save_superop() # .save_density_matrix()
                 circ = transpile(new_qc, backend=backend, optimization_level=0)
                 
-                n_reps_qc.save_density_matrix() # Check circuit with n_reps > 1
+                n_reps_qc.save_superop() # .save_density_matrix() # Check circuit with n_reps > 1
                 circ_nreps = transpile(n_reps_qc, backend=backend, optimization_level=0)
 
                 states_result = backend.run(
@@ -499,7 +499,7 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                     ],
                 ).result()
                 output_states = [
-                    states_result.data(i)["density_matrix"]
+                    states_result.data(i)["superop"] # ["density_matrix"]
                     for i in range(self.batch_size)
                 ]
 
@@ -514,7 +514,7 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                     ],
                 ).result()
                 output_states_nreps = [
-                    states_result_nreps.data(i)["density_matrix"]
+                    states_result_nreps.data(i)["superop"] # ["density_matrix"]
                     for i in range(self.batch_size)
                 ]
 
@@ -538,12 +538,15 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                     raise NotImplementedError(
                         "Pulse simulation not yet implemented for this backend"
                     )
+            from qiskit.quantum_info import Operator
             circuit_fidelities = [
-                state_fidelity(state, Statevector(baseline_circ))
+                # state_fidelity(state, Statevector(baseline_circ))
+                average_gate_fidelity(state, Operator(baseline_circ))
                 for state in output_states
             ]
             circuit_fidelities_nreps = [
-                state_fidelity(state, Statevector(baseline_circ_nreps))
+                # state_fidelity(state, Statevector(baseline_circ_nreps))
+                average_gate_fidelity(state, Operator(baseline_circ_nreps))
                 for state in output_states_nreps
             ]
             # circuit_fidelities = [state_fidelity(partial_trace(state,
