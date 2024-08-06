@@ -32,6 +32,7 @@ from rl_qoc.ppo_config import (
 from rl_qoc.ppo_config import (
     TotalUpdates,
     HardwareRuntime,
+    ExperimentRuntime,
     TrainingConfig,
     TrainFunctionSettings,
 )
@@ -71,8 +72,9 @@ def get_environment(
     time.sleep(4)
 
     if phi_gamma_tuple is not None and use_context is True:
+        config_path = config_paths["noise_q_env_config_file"]
         gate_q_env_config, circuit_context = setup_spillover_noise_qenv_config(
-            phi_gamma_tuple, config_paths["noise_q_env_config_file"]
+            phi_gamma_tuple, config_path
         )
 
         q_env = SpilloverNoiseQuantumEnvironment(
@@ -80,7 +82,7 @@ def get_environment(
         )
     else:
         from q_env_config import q_env_config as gate_q_env_config, circuit_context
-
+        config_path = config_paths["q_env_config_file"]
         if use_context:
             q_env = ContextAwareQuantumEnvironment(
                 gate_q_env_config, circuit_context, training_steps_per_gate=250
@@ -90,7 +92,7 @@ def get_environment(
 
     print_env_info(q_env)
 
-    return RescaleAction(ClipAction(q_env), -1.0, 1.0)
+    return RescaleAction(ClipAction(q_env), -1.0, 1.0), config_path
 
 
 def do_hpo(
@@ -143,7 +145,7 @@ def main(
         experimental_penalty_weights = kwargs["experimental_penalty_weights"]
         directory_paths = kwargs["directory_paths"]
         # hpo_agent_path = directory_paths.agent_config_path
-        rescaled_env = get_environment(
+        rescaled_env, _ = get_environment(
             config_paths=config_paths,
             use_context=use_context,
             phi_gamma_tuple=phi_gamma_tuple,
@@ -157,7 +159,7 @@ def main(
             directory_paths,
         )
     else:
-        rescaled_env = get_environment(
+        rescaled_env, exec_config_path = get_environment(
             config_paths=config_paths,
             use_context=use_context,
             phi_gamma_tuple=phi_gamma_tuple,
@@ -166,7 +168,7 @@ def main(
             rescaled_env, training_config, train_function_settings, config_paths['agent_config_file']
         )
 
-        custom_saving_file_name = constraint_str + create_custom_file_name(config_paths["q_env_config_file"])
+        custom_saving_file_name = constraint_str + create_custom_file_name(exec_config_path)
 
         saving_path = os.path.join(
             config_paths["save_results_dir"],
@@ -187,8 +189,8 @@ if __name__ == "__main__":
     num_hpo_trials = 20
 
     """ Training Settings """
-    use_context = True # False
-    phi_gamma_tuple = (np.pi/4, 0.025) # None
+    use_context = True
+    phi_gamma_tuple = (np.pi, 0.025) # None
 
     ######################################################
     
@@ -213,9 +215,10 @@ if __name__ == "__main__":
     )
 
     total_updates = TotalUpdates(250)
-    hardware_runtime = HardwareRuntime(300)
+    hardware_runtime = HardwareRuntime(600)
+    experiment_runtime = ExperimentRuntime(600)
     training_config = TrainingConfig(
-        training_constraint=total_updates,
+        training_constraint=experiment_runtime,
         target_fidelities=[0.999, 0.9999, 0.99999],
         lookback_window=10,
         anneal_learning_rate=False,

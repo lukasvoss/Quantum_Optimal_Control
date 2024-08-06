@@ -20,6 +20,13 @@ class HardwareRuntime:
     def __post_init__(self):
         assert self.hardware_runtime > 0, "hardware_runtime must be greater than 0"
 
+@dataclass
+class ExperimentRuntime:
+    experiment_runtime: Union[int, float] = None
+
+    def __post_init__(self):
+        assert self.experiment_runtime > 0, "experiment_runtime must be greater than 0"
+
 
 @dataclass
 class TrainFunctionSettings:
@@ -37,7 +44,7 @@ class TrainFunctionSettings:
 
 @dataclass
 class TrainingConfig:
-    training_constraint: Union[TotalUpdates, HardwareRuntime] = field(
+    training_constraint: Union[TotalUpdates, HardwareRuntime, ExperimentRuntime] = field(
         default_factory=lambda: TotalUpdates(250)
     )
     target_fidelities: Optional[list] = field(

@@ -2,7 +2,7 @@ from dataclasses import asdict
 import time
 from matplotlib.ticker import MaxNLocator
 import numpy as np
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 import tqdm
 from IPython.display import clear_output
 from gymnasium import Wrapper
@@ -19,6 +19,7 @@ from rl_qoc.agent import ActorNetwork, CriticNetwork, Agent
 from rl_qoc.base_q_env import BaseQuantumEnvironment
 from rl_qoc.ppo_config import (
     HardwareRuntime,
+    ExperimentRuntime,
     TotalUpdates,
     TrainFunctionSettings,
     TrainingConfig,
@@ -697,7 +698,7 @@ def update_metric_lists(
     avg_reward.append(np.mean(env.unwrapped.reward_history, axis=1)[-1])
     if len(env.unwrapped.fidelity_history) > 0:
         fidelities.append(env.unwrapped.fidelity_history[-1])
-        fidelities_nreps.append(env.unwrapped.fidelity_history_nreps[-1])
+        fidelities_nreps.append(env.unwrapped.fidelity_history_nreps[-1]) if hasattr(env.unwrapped, "fidelity_history_nreps") else None
     avg_action_history.append(mean_action[0].numpy())
     std_actions.append(std_action[0].numpy())
 
@@ -731,6 +732,7 @@ def update_fidelity_info(
                         "mean_action": mean_action[0].numpy(),
                         "std_action": std_action.numpy()[0],
                         "hardware_runtime": np.sum(env.unwrapped.hardware_runtime),
+                        "experiment_runtime": np.sum(env.unwrapped.experiment_runtime),
                         "simulation_train_time": time.time() - start_time,
                         "shots_used": np.cumsum(env.unwrapped.total_shots)[
                             update_step - 1
@@ -840,6 +842,7 @@ class CustomPPO:
             "fidelity_history": fidelities,
             "fidelity_history_nreps": fidelities_nreps,
             "hardware_runtime": self.env.unwrapped.hardware_runtime,
+            "experiment_runtime": self.env.unwrapped.experiment_runtime,
             "action_history": avg_action_history,
             "best_action_vector": self.env.unwrapped.optimal_action,
             "total_shots": self.env.unwrapped.total_shots,
@@ -923,14 +926,23 @@ class CustomPPO:
                     ):
                         break
 
-            elif isinstance(self.training_constraint, HardwareRuntime):
+            elif isinstance(self.training_constraint, Union[HardwareRuntime, ExperimentRuntime]):
                 # Hardware Constraint Mode: Train until hardware runtime exceeds maximum
-                self.max_hardware_runtime = self.training_constraint.hardware_runtime
-                logging.warning("Training Constraint: Hardware Runtime")
+                if isinstance(self.training_constraint, HardwareRuntime):
+                    time_tracker = self.env.unwrapped.hardware_runtime
+                    max_time = self.training_constraint.hardware_runtime
+                    constraint_type = "Hardware Runtime"
+
+                elif isinstance(self.training_constraint, ExperimentRuntime):
+                    time_tracker = self.env.unwrapped.experiment_runtime
+                    max_time = self.training_constraint.experiment_runtime
+                    constraint_type = "Experiment Runtime"
+
+                logging.warning(f"Training Constraint: {constraint_type}")
                 iteration = 0
                 while (
-                    np.sum(self.env.unwrapped.hardware_runtime)
-                    < self.max_hardware_runtime
+                    np.sum(time_tracker)
+                    < max_time
                 ):
                     iteration += 1
                     if self.execute_training_cycle(
@@ -1164,13 +1176,7 @@ class CustomPPO:
         Adjusts the learning rate based on the given parameters.
 
         Args:
-            env: The environment object.
-            hardware_constraint_use_case: A boolean indicating whether to use hardware constraints.
-            optimizer: The optimizer object.
-            lr: The initial learning rate.
-            total_updates: The total number of updates.
             iteration: The current iteration number (optional).
-            max_hardware_runtime: The maximum hardware runtime (optional).
         """
         min_lr = 1e-5
 

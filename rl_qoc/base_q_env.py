@@ -75,6 +75,7 @@ from rl_qoc.helper_functions import (
     retrieve_neighbor_qubits,
     substitute_target_gate,
     get_hardware_runtime_single_circuit,
+    get_experiment_runtime,
 )
 from rl_qoc.qconfig import (
     QiskitConfig,
@@ -536,6 +537,7 @@ class BaseQuantumEnvironment(ABC, Env):
         self._inside_trunc_tracker = 0
         self._total_shots = []
         self._hardware_runtime = []
+        self._experiment_runtime = []
         self._max_return = 0
         self._episode_ended = False
         self._episode_tracker = 0
@@ -614,6 +616,7 @@ class BaseQuantumEnvironment(ABC, Env):
             if reward_method == "fidelity":
                 self._total_shots.append(0)
                 self._hardware_runtime.append(0.0)
+                self._experiment_runtime.append(0.0)
                 return fids
 
         # Check if the reward method exists in the dictionary
@@ -627,7 +630,18 @@ class BaseQuantumEnvironment(ABC, Env):
                 )
                 * self.total_shots[-1]
             )
+            self._experiment_runtime.append(
+                get_experiment_runtime(
+                    reward_method,
+                    self.hardware_runtime[-1],
+                    self.batch_size,
+                    upload_time_fpga=0.4,
+                    compilation_time_fpga=0.7,
+                    opx_loading_params_time=100e-3,
+                )
+            )
             print("Hardware runtime taken:", sum(self.hardware_runtime))
+            print("Experiment time taken:", sum(self.experiment_runtime))
 
         counts = (
             self._session_counts
@@ -1221,6 +1235,7 @@ class BaseQuantumEnvironment(ABC, Env):
         self.reward_history.clear()
         self._total_shots.clear()
         self._hardware_runtime.clear()
+        self._experiment_runtime.clear()
         if isinstance(self.target, GateTarget):
             self.avg_fidelity_history.clear()
             self.process_fidelity_history.clear()
@@ -1442,6 +1457,10 @@ class BaseQuantumEnvironment(ABC, Env):
     @property
     def hardware_runtime(self):
         return self._hardware_runtime
+
+    @property
+    def experiment_runtime(self):
+        return self._experiment_runtime
 
     @property
     def n_actions(self):

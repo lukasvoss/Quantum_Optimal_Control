@@ -1757,6 +1757,26 @@ def get_hardware_runtime_single_circuit(
 
     return total_execution_time
 
+def get_experiment_runtime(
+    reward_method: str, 
+    hardware_runtime: np.ndarray, 
+    batchsize: int, 
+    upload_time_fpga: float = 0.4, 
+    compilation_time_fpga: float = 0.7, 
+    opx_loading_params_time: float = 100e-3
+):
+    """
+    Adds the upload and compilation time of the control stack devices in the lab to the hardware runtime on the chip to get the total experiment runtime
+    """
+    if reward_method == 'ORBIT':
+        upload_time = upload_time_fpga * batchsize
+        compilation_time = compilation_time_fpga * batchsize
+        experiment_runtime += hardware_runtime + compilation_time + upload_time
+    else:
+        experiment_runtime = hardware_runtime + opx_loading_params_time
+
+    return experiment_runtime
+
 
 def create_custom_file_name(config_path: str) -> str:
     config = load_from_yaml_file(config_path)
@@ -1786,7 +1806,7 @@ def create_custom_file_name(config_path: str) -> str:
     custom_string = f"target_{target_gate}_qubits_{physical_qubits[0]}-{physical_qubits[1]}_reward_{reward_method.upper()}"
 
     # Add execution parameters
-    custom_string += f"_paulis_{sampling_paulis}_shots_{n_shots}_reps_{n_reps}_batchsize_{batch_size}_seed_{seed}"
+    custom_string += f"_reps_{n_reps}_paulis_{sampling_paulis}_shots_{n_shots}_batchsize_{batch_size}_seed_{seed}"
 
     # Add action space parameters
     custom_string += f"_action_low_{action_space_low_min}_high_{action_space_high_max}"
