@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import os
 import sys
 import pickle
-import warnings
 import gzip
 from dataclasses import asdict
 
@@ -42,7 +40,6 @@ from qiskit.quantum_info import (
 )
 from qiskit.transpiler import (
     CouplingMap,
-    InstructionDurations,
     InstructionProperties,
     Target,
 )
@@ -55,6 +52,8 @@ from qiskit.providers import (
     QiskitBackendNotFoundError,
 )
 from qiskit_ibm_runtime.fake_provider import FakeProvider, FakeProviderForBackendV2
+from qiskit_ibm_runtime.fake_provider.fake_backend import FakeBackendV2, FakeBackend
+from qiskit_aer.backends.aerbackend import AerBackend
 from qiskit_ibm_runtime import (
     Session,
     IBMBackend as RuntimeBackend,
@@ -77,7 +76,7 @@ from qiskit_dynamics.backend.dynamics_backend import (
 )
 
 from qiskit_experiments.calibration_management import Calibrations
-from qiskit_experiments.framework import BatchExperiment, BaseAnalysis, BackendData
+from qiskit_experiments.framework import BatchExperiment, BaseAnalysis
 from qiskit_experiments.library import (
     StateTomography,
     ProcessTomography,
@@ -89,7 +88,7 @@ from qiskit_experiments.calibration_management.basis_gate_library import (
     EchoedCrossResonance,
 )
 
-from itertools import permutations, chain
+from itertools import chain
 from typing import Optional, Tuple, List, Union, Dict, Sequence, Callable, Any
 import yaml
 
@@ -243,10 +242,11 @@ def perform_standard_calibrations(
             "Backend must be a DynamicsBackend instance (given: {type(backend)})"
         )
 
-    target, qubits = backend.target, range(backend.num_qubits)
+    target, qubits, dt = backend.target, range(backend.num_qubits), backend.dt
     num_qubits = len(qubits)
     single_qubit_properties = {(qubit,): None for qubit in qubits}
     single_qubit_errors = {(qubit,): 0.0 for qubit in qubits}
+    two_qubit_properties = None
 
     control_channel_map = backend.options.control_channel_map
     coupling_map = None
@@ -260,7 +260,7 @@ def perform_standard_calibrations(
                 for qubit_pair in control_channel_map
             }
         else:
-            all_to_all_connectivity = tuple(permutations(qubits, 2))
+            all_to_all_connectivity = CouplingMap.from_full(num_qubits).get_edges()
             control_channel_map = {
                 (q[0], q[1]): index for index, q in enumerate(all_to_all_connectivity)
             }
@@ -271,6 +271,7 @@ def perform_standard_calibrations(
         backend.set_options(control_channel_map=control_channel_map)
         coupling_map = [list(qubit_pair) for qubit_pair in control_channel_map]
         two_qubit_properties = {qubits: None for qubits in control_channel_map}
+
     standard_gates: Dict[str, Gate] = gate_map()  # standard gate library
     fixed_phase_gates, fixed_phases = ["z", "s", "sdg", "t", "tdg"], np.pi * np.array(
         [1, 0.5, -0.5, 0.25, -0.25]
@@ -339,21 +340,20 @@ def perform_standard_calibrations(
             pulse.delay(delay_param, pulse.DriveChannel(qubit))
 
         # Update backend Target by adding calibrations for all phase gates (fixed angle virtual Z-rotations)
-        target.update_instruction_properties(
-            "rz", (qubit,), InstructionProperties(calibration=rz_cal, error=0.0)
-        )
-        target.update_instruction_properties(
-            "id", (qubit,), InstructionProperties(calibration=id_cal, error=0.0)
-        )
-        target.update_instruction_properties(
-            "reset", (qubit,), InstructionProperties(calibration=id_cal, error=0.0)
-        )
-        target.update_instruction_properties(
-            "delay", (qubit,), InstructionProperties(calibration=delay_cal, error=0.0)
-        )
+        for name, cal, duration in zip(
+            ["rz", "id", "delay", "reset"],
+            [rz_cal, id_cal, delay_cal, id_cal],
+            [0, 20 * dt, None, 1000 * dt],
+        ):
+            target.update_instruction_properties(
+                name, (qubit,), InstructionProperties(duration, 0.0, cal)
+            )
+
         for phase, gate in zip(fixed_phases, fixed_phase_gates):
             gate_cal = rz_cal.assign_parameters({phi: phase}, inplace=False)
-            instruction_prop = InstructionProperties(calibration=gate_cal, error=0.0)
+            instruction_prop = InstructionProperties(
+                gate_cal.duration * dt, 0.0, gate_cal
+            )
             target.update_instruction_properties(gate, (qubit,), instruction_prop)
 
         # Perform calibration experiments (Rabi/Drag) for calibrating X and SX gates
@@ -384,7 +384,11 @@ def perform_standard_calibrations(
         target.update_instruction_properties(
             "h",
             (qubit,),
-            properties=InstructionProperties(calibration=h_schedule, error=0.0),
+            properties=InstructionProperties(h_schedule.duration * dt, 0.0, h_schedule),
+        )
+        measure_cal = target.get_calibration("measure", (qubit,))
+        target.update_instruction_properties(
+            "measure", (qubit,), InstructionProperties(1000 * dt, 0.0, measure_cal)
         )
 
     print("All single qubit calibrations are done")
@@ -942,8 +946,11 @@ def retrieve_primitives(
             calibration_files = config.calibration_files
             _, _ = perform_standard_calibrations(backend, calibration_files)
     # elif isinstance(backend, (FakeBackend, FakeBackendV2, AerBackend)):
-    #     from qiskit_aer.primitives import EstimatorV2 as AerEstimatorV2, SamplerV2 as AerSamplerV2
-    #     print("Aer Backend created out of backend", backend)
+    #     from qiskit_aer.primitives import (
+    #         EstimatorV2 as AerEstimatorV2,
+    #         SamplerV2 as AerSamplerV2,
+    #     )
+
     #     estimator = AerEstimatorV2.from_backend(backend=backend)
     #     sampler = AerSamplerV2.from_backend(backend=backend)
     elif backend is None:  # No backend specified, ideal state-vector simulation
@@ -951,7 +958,6 @@ def retrieve_primitives(
         estimator = StatevectorEstimator()
 
     elif isinstance(backend, RuntimeBackend):
-        # TODO: Next update: will switch to keyword 'mode' instead of 'session'
         estimator = RuntimeEstimatorV2(
             mode=Session(backend=backend),
             options=estimator_options,
@@ -966,30 +972,6 @@ def retrieve_primitives(
         sampler = BackendSamplerV2(backend=backend)
 
     return estimator, sampler
-
-
-def substitute_target_gate(
-    circuit: QuantumCircuit,
-    target_gate: Gate,
-    custom_gate: Gate,
-):
-    """
-    Substitute target gate in Quantum Circuit with a parametrized version of the gate.
-    The parametrized_circuit function signature should match the expected one for a QiskitConfig instance.
-
-    Args:
-        circuit: Quantum Circuit instance
-        target_gate: Target gate to be substituted
-        custom_gate: Custom gate to be substituted with
-    """
-    ref_label = target_gate.label
-    qc = circuit.copy_empty_like()
-    for instruction in circuit.data:
-        if instruction.operation.label != ref_label:
-            qc.append(instruction)
-        else:
-            qc.append(custom_gate, instruction.qubits)
-    return qc
 
 
 def substitute_target_gate(
@@ -1163,6 +1145,23 @@ def select_backend(
             )
 
     return backend
+
+
+def has_noise_model(backend: AerBackend):
+    """
+    Check if Aer backend has noise model or not
+
+    Args:
+        backend: AerBackend instance
+    """
+    if (
+        backend.options.noise_model is None
+        or backend.options.noise_model.to_dict() == {}
+        or len(backend.options.noise_model.to_dict()["errors"]) == 0
+    ):
+        return False
+    else:
+        return True
 
 
 def custom_dynamics_from_backend(
@@ -1644,7 +1643,6 @@ def save_to_pickle(data, file_path: str) -> None:
         else:
             with open(file_path, "wb") as file:
                 pickle.dump(data, file)
-        logging.warning('File saved successfully to {}'.format(file_path))
     except Exception as e:
         logging.warning(f"Failed to save file {file_path}")
         logging.warning(f"Error Message: {e}")
@@ -1681,14 +1679,11 @@ def create_hpo_agent_config(
             hyper_params[param] = values
 
     # Dynamically calculate batchsize from minibatch_size and num_minibatches
-    # print("MINIBATCH_SIZE", hyper_params["MINIBATCH_SIZE"]) if "MINIBATCH_SIZE" in hyper_params else None
-    # print("NUM_MINIBATCHES", hyper_params["NUM_MINIBATCHES"]) if "NUM_MINIBATCHES" in hyper_params else None
+    print("MINIBATCH_SIZE", hyper_params["MINIBATCH_SIZE"])
+    print("NUM_MINIBATCHES", hyper_params["NUM_MINIBATCHES"])
     hyper_params["BATCHSIZE"] = (
         hyper_params["MINIBATCH_SIZE"] * hyper_params["NUM_MINIBATCHES"]
-    ) if "MINIBATCH_SIZE" in hyper_params and "NUM_MINIBATCHES" in hyper_params else None
-    # print("BATCHSIZE", hyper_params["BATCHSIZE"])
-    # print("N_SHOTS", hyper_params["N_SHOTS"]) if "N_SHOTS" in hyper_params else None
-    # print("SAMPLE_PAULIS", hyper_params["SAMPLING_PAULIS"]) if "SAMPLING_PAULIS" in hyper_params else None
+    )
 
     # Print hyperparameters considered for HPO
     print("Hyperparameters considered for HPO:", hyperparams_in_scope)
@@ -1701,7 +1696,7 @@ def create_hpo_agent_config(
 
     # Take over attributes from agent_config and populate hyper_params
     agent_config = load_from_yaml_file(path_to_agent_config)
-    final_config = deepcopy(hyper_params)
+    final_config = hyper_params.copy()
     final_config.update(agent_config)
     final_config.update(hyper_params)
 
@@ -1709,13 +1704,14 @@ def create_hpo_agent_config(
 
 
 def get_hardware_runtime_single_circuit(
-    qc: QuantumCircuit, instruction_durations_dict: Dict[str, float]
+    qc: QuantumCircuit,
+    instruction_durations_dict: Dict[Tuple[str, Tuple[int, ...]], Tuple[float, str]],
 ):
     total_time_per_qubit = {qubit: 0.0 for qubit in qc.qubits}
 
     for instruction in qc.data:
         qubits_involved = instruction.qubits
-        gate_name = (
+        gate_name: str = (
             instruction.operation.name
             if not instruction.operation.label
             else instruction.operation.label
@@ -1723,7 +1719,7 @@ def get_hardware_runtime_single_circuit(
 
         if len(qubits_involved) == 1:
             qbit1 = qubits_involved[0]
-            qbit1_index = qc.find_bit(qbit1).index
+            qbit1_index = qc.find_bit(qbit1)[0]
             key = (gate_name, (qbit1_index,))
             if key in instruction_durations_dict:
                 gate_time = instruction_durations_dict[key][0]
@@ -1731,8 +1727,8 @@ def get_hardware_runtime_single_circuit(
 
         elif len(qubits_involved) == 2:
             qbit1, qbit2 = qubits_involved
-            qbit1_index = qc.find_bit(qbit1).index
-            qbit2_index = qc.find_bit(qbit2).index
+            qbit1_index = qc.find_bit(qbit1)[0]
+            qbit2_index = qc.find_bit(qbit2)[0]
             key = (gate_name, (qbit1_index, qbit2_index))
             if key in instruction_durations_dict:
                 gate_time = instruction_durations_dict[key][0]
@@ -1756,6 +1752,15 @@ def get_hardware_runtime_single_circuit(
     )
 
     return total_execution_time
+
+
+def get_hardware_runtime_cumsum(
+    qc: QuantumCircuit, circuit_gate_times: Dict, total_shots: List[int]
+) -> np.array:
+    return np.cumsum(
+        get_hardware_runtime_single_circuit(qc, circuit_gate_times)
+        * np.array(total_shots)
+    )
 
 def get_experiment_runtime(
     reward_method: str, 
@@ -1824,59 +1829,6 @@ def create_custom_file_name(config_path: str) -> str:
     return custom_string
 
 
-def get_hardware_runtime_cumsum(
-    qc: QuantumCircuit, circuit_gate_times: Dict, total_shots: List[int]
-) -> List[float]:
-    return np.cumsum(
-        get_hardware_runtime_single_circuit(qc, circuit_gate_times)
-        * np.array(total_shots)
-    )
-
-
-def retrieve_backend_info(
-    backend: Optional[Backend_type] = None,
-    instruction_durations_dict: Optional[Dict[str, float]] = None,
-):
-    """
-    Retrieve useful Backend data to run context aware gate calibration
-
-    Args:
-        backend: Backend instance
-        instruction_durations_dict: Instruction duration dictionary
-
-
-    Returns:
-    dt: Time step
-    coupling_map: Coupling map
-    basis_gates: Basis gates
-    instruction_durations: Instruction durations
-
-    """
-
-    if isinstance(backend, Backend_type):
-        backend_data = BackendData(backend)
-        dt = backend_data.dt if backend_data.dt is not None else 2.2222222222222221e-10
-        coupling_map = CouplingMap(backend_data.coupling_map)
-        # Check basis_gates and their respective durations of backend (for identifying timing context)
-        if isinstance(backend, BackendV1):
-            instruction_durations = InstructionDurations.from_backend(backend)
-            basis_gates = backend.configuration().basis_gates.copy()
-        elif isinstance(backend, BackendV2):
-            instruction_durations = backend.instruction_durations
-            basis_gates = backend.operation_names.copy()
-        else:
-            instruction_durations = instruction_durations_dict
-            basis_gates = None
-    else:
-        warnings.warn(
-            "No Backend was provided, using default values for dt, coupling_map, basis_gates and instruction_durations"
-        )
-
-        return 2.222e-10, CouplingMap.from_full(5), ["x", "sx", "cx", "rz"], None
-
-    return dt, coupling_map, basis_gates, instruction_durations
-
-
 def retrieve_neighbor_qubits(coupling_map: CouplingMap, target_qubits: List):
     """
     Retrieve neighbor qubits of target qubits
@@ -1909,11 +1861,11 @@ def retrieve_tgt_instruction_count(qc: QuantumCircuit, target: Dict):
     Retrieve count of target instruction in Quantum Circuit
 
     Args:
-        qc: Quantum Circuit
-        target: Target in form of {"gate": "X", "register": [0, 1]}
+        qc: Quantum Circuit (ideally already transpiled)
+        target: Target in form of {"gate": "X", "physical_qubits": [0, 1]}
     """
     tgt_instruction = CircuitInstruction(
-        target["gate"], [qc.qubits[i] for i in target["register"]]
+        target["gate"], [qc.qubits[i] for i in target["physical_qubits"]]
     )
     return qc.data.count(tgt_instruction)
 

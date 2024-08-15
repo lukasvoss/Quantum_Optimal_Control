@@ -151,7 +151,7 @@ def get_backend(
 
 
 # Custom spillover noise model
-phi = np.pi / 2  # rotation angle
+phi = np.pi  # rotation angle
 gamma = 0.025  # spillover rate for the CRX gate
 custom_rx_gate_label = "custom_kron(rx,ident)_gate"
 

@@ -4,7 +4,7 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, List, Any, Literal, Tuple
 
-from quam.components.channels import Channel as QuamChannel
+# from quam.components.channels import Channel as QuamChannel
 import torch
 from gymnasium.spaces import Box
 from qiskit import pulse
@@ -72,21 +72,21 @@ class QiskitConfig(BackendConfig):
     do_calibrations: bool = True
 
 
-@dataclass
-class QuaConfig(BackendConfig):
-    """
-    QUA Configuration
-
-    Args:
-        parametrized_circuit: Function applying parametrized transformation to a QUA program
-        backend: Quantum Machine backend
-        hardware_config: Hardware configuration
-        channel_mapping: Dictionary mapping channels to quantum elements
-    """
-
-    channel_mapping: Dict[pulse.channels.Channel, QuamChannel] = (
-        None  # channel to quantum element mapping (e.g. DriveChannel(0) -> 'd0')
-    )
+# @dataclass
+# class QuaConfig(BackendConfig):
+#     """
+#     QUA Configuration
+#
+#     Args:
+#         parametrized_circuit: Function applying parametrized transformation to a QUA program
+#         backend: Quantum Machine backend
+#         hardware_config: Hardware configuration
+#         channel_mapping: Dictionary mapping channels to quantum elements
+#     """
+#
+#     channel_mapping: Dict[pulse.channels.Channel, QuamChannel] = (
+#         None  # channel to quantum element mapping (e.g. DriveChannel(0) -> 'd0')
+#     )
 
 
 @dataclass
@@ -169,7 +169,7 @@ class ChannelConfig(RewardConfig):
     """
 
     reward_method: Literal["channel"] = field(default="channel", init=False)
-    num_eigenstates_per_pauli: int
+    num_eigenstates_per_pauli: int = 1
 
 
 @dataclass
@@ -284,7 +284,7 @@ class QEnvConfig:
         self.execution_config.n_shots = value
 
     @property
-    def n_reps(self):
+    def n_reps(self) -> int:
         return self.execution_config.n_reps
 
     @n_reps.setter
@@ -333,7 +333,7 @@ class QEnvConfig:
 
     @reward_method.setter
     def reward_method(
-            self, value: Literal["fidelity", "channel", "state", "xeb", "cafe", "orbit"]
+        self, value: Literal["fidelity", "channel", "state", "xeb", "cafe", "orbit"]
     ):
         self.reward_config.reward_method = value
 

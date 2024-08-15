@@ -47,6 +47,7 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
             intermediate_rewards,
         )
         self.phi_gamma_tuple = phi_gamma_tuple
+        self.custom_rx_gate_label = "custom_kron(rx,ident)_gate"
 
     def modify_environment_params(self, **kwargs):
         """
@@ -60,7 +61,7 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
             )
 
     def get_n_reps(self, target_fidelities):
-        baseline_fidelity = self.get_baseline_fid_from_phi_gamma()
+        baseline_fidelity = self.get_baseline_fid_from_phi_gamma(params=np.zeros(7))
         # To which integer power do I need to raise baseline_fidelity to be below the lowest target fidelity?
         smallest_N_reps = math.ceil(math.log(min(target_fidelities), baseline_fidelity))
         if smallest_N_reps == 150:
@@ -69,9 +70,9 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
             )
         return min([smallest_N_reps, 150])
 
-    def get_baseline_fid_from_phi_gamma(self):
+    def get_baseline_fid_from_phi_gamma(self, params):
         ideal_circ = self._get_ideal_circ()
-        noisy_circ = self._build_noisy_circ()
+        noisy_circ = self._build_noisy_circ(params)
         backend = self._bind_noise_get_backend()
         process_results = backend.run(noisy_circ).result()
         q_process_list = [
@@ -88,75 +89,45 @@ class SpilloverNoiseQuantumEnvironment(ContextAwareQuantumEnvironment):
         )
         return avg_fidelity
 
-    def _get_noisy_circuit(self):
-        circuit = QuantumCircuit(2)
-
-        rx_phi_op = Operator(RXGate(self.phi))
-        circuit.unitary(rx_phi_op, [0], label="RX(phi)")
-
-        rx_phi_gamma_op = Operator(RXGate(self.gamma * self.phi))
-        circuit.unitary(rx_phi_gamma_op, [1], label="RX(gamma*phi)")
-
-        # Model custom CX gate
-        optimal_params_noise_free = np.pi * np.array(
-            [0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5]
-        )
-        circuit.u(
-            optimal_params_noise_free[0],
-            optimal_params_noise_free[1],
-            optimal_params_noise_free[2],
-            0,
-        )
-        circuit.u(
-            optimal_params_noise_free[3],
-            optimal_params_noise_free[4],
-            optimal_params_noise_free[5],
-            1,
-        )
-        circuit.rzx(optimal_params_noise_free[6], 0, 1)
-
-        return circuit
-
     def _bind_noise_get_backend(self):
         identity_op = Operator(IGate())
         rx_op = Operator(RXGate(self.gamma * self.phi))
         ident_rx_op = rx_op.tensor(identity_op)
 
-        custom_rx_gate_label = "custom_kron(rx,ident)_gate"
+        
         noise_model = noise.NoiseModel()
 
         coherent_crx_noise = noise.coherent_unitary_error(ident_rx_op)
         noise_model.add_quantum_error(
-            coherent_crx_noise, [custom_rx_gate_label], [0, 1]
+            coherent_crx_noise, [self.custom_rx_gate_label], [0, 1]
         )
         noise_model.add_basis_gates(["unitary"])
 
         backend = AerSimulator(noise_model=noise_model)
         return backend
 
-    def _build_noisy_circ(self):
-        custom_rx_gate_label = "custom_kron(rx,ident)_gate"
+    def _build_noisy_circ(self, params):
         circuit = QuantumCircuit(2)
         identity_op = Operator(IGate())
         rx_op = Operator(RXGate(self.phi))
         rx_2q_gate = identity_op.tensor(rx_op)
-        circuit.unitary(rx_2q_gate, [0, 1], label=custom_rx_gate_label)
+        circuit.unitary(rx_2q_gate, [0, 1], label=self.custom_rx_gate_label)
 
         # Model custom CX gate
         optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
         circuit.u(
-            optimal_params[0],
-            optimal_params[1],
-            optimal_params[2],
+            optimal_params[0] + params[0],
+            optimal_params[1] + params[1],
+            optimal_params[2] + params[2],
             0,
         )
         circuit.u(
-            optimal_params[3],
-            optimal_params[4],
-            optimal_params[5],
+            optimal_params[3] + params[3],
+            optimal_params[4] + params[4],
+            optimal_params[5] + params[4],
             1,
         )
-        circuit.rzx(optimal_params[6], 0, 1)
+        circuit.rzx(optimal_params[6] + params[6], 0, 1)
 
         circuit.save_superop()
         # circuit.save_density_matrix()

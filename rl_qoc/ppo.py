@@ -2,7 +2,7 @@ from dataclasses import asdict
 import time
 from matplotlib.ticker import MaxNLocator
 import numpy as np
-from typing import Optional, Dict, Union
+from typing import Optional, Dict
 import tqdm
 from IPython.display import clear_output
 from gymnasium import Wrapper
@@ -280,7 +280,7 @@ def plot_curves(env: BaseQuantumEnvironment):
     Plots the reward history and fidelity history of the environment
     """
     fidelity_range = [i * env.benchmark_cycle for i in range(len(env.fidelity_history))]
-    plt.plot(np.mean(env.unwrapped.reward_history, axis=1), label="Reward")
+    plt.plot(np.mean(env.reward_history, axis=1), label="Reward")
     plt.plot(
         fidelity_range,
         env.fidelity_history,
@@ -382,16 +382,16 @@ def take_step(
     Takes a step in the environment using the PPO algorithm.
 
     Args:
-        step (int): The current step index.
-        global_step (int): The global step index.
-        batchsize (int): The size of the batch.
-        num_steps (int): The total number of steps.
-        obs (list): List to store the observations.
-        dones (list): List to store the done flags.
-        actions (list): List to store the actions.
-        logprobs (list): List to store the log probabilities.
-        rewards (list): List to store the rewards.
-        values (list): List to store the critic values.
+        step (int): current step index.
+        global_step (int): global step index.
+        batchsize (int): Size of the batch.
+        num_steps (int): Total number of steps.
+        obs (list): List to store observations.
+        dones (list): List to store done flags.
+        actions (list): List to store actions.
+        logprobs (list): List to store log probabilities.
+        rewards (list): List to store rewards.
+        values (list): List to store critic values.
         batch_obs (torch.Tensor): Batch of observations.
         batch_done (torch.Tensor): Batch of done flags.
         min_action (list): List of minimum action values.
@@ -413,7 +413,7 @@ def take_step(
     with torch.no_grad():
         mean_action, std_action, critic_value = agent(batch_obs)
         probs = Normal(mean_action, std_action)
-        env.unwrapped.mean_action = mean_action[0]
+        env.unwrapped.mean_action = env.action(mean_action.cpu().numpy())[0]
         env.unwrapped.std_action = std_action[0]
         action = torch.clip(
             probs.sample(),
@@ -607,21 +607,21 @@ def optimize_policy_and_value_network(
     return pg_loss, entropy_loss, v_loss, approx_kl, old_approx_kl, clipfracs
 
 
-def print_debug_info(env, mean_action, std_action, b_returns, b_advantages, hpo_trial_number=None):
+def print_debug_info(
+    env: BaseQuantumEnvironment, mean_action, std_action, b_returns, b_advantages
+):
     """
     Print debug information for the training process.
     """
-    if hpo_trial_number is not None:
-        print(f"HPO Trial Number: {hpo_trial_number+1}")
-    print("mean", mean_action[0])
+    print("mean", env.mean_action)
     print("sigma", std_action[0])
     print(
         "DFE Rewards Mean:",
-        np.mean(env.unwrapped.reward_history, axis=1)[-1],
+        np.mean(env.reward_history, axis=1)[-1],
     )
     print(
         "DFE Rewards standard dev",
-        np.std(env.unwrapped.reward_history, axis=1)[-1],
+        np.std(env.reward_history, axis=1)[-1],
     )
     print("Returns Mean:", np.mean(b_returns.numpy()))
     print("Returns standard dev:", np.std(b_returns.numpy()))
@@ -683,7 +683,7 @@ def check_convergence_std_actions(std_action, std_actions_eps):
 
 
 def update_metric_lists(
-    env,
+    env: BaseQuantumEnvironment,
     mean_action,
     std_action,
     avg_reward,
@@ -695,11 +695,11 @@ def update_metric_lists(
     """
     Update the metric lists with the latest values.
     """
-    avg_reward.append(np.mean(env.unwrapped.reward_history, axis=1)[-1])
-    if len(env.unwrapped.fidelity_history) > 0:
-        fidelities.append(env.unwrapped.fidelity_history[-1])
-        fidelities_nreps.append(env.unwrapped.fidelity_history_nreps[-1]) if hasattr(env.unwrapped, "fidelity_history_nreps") else None
-    avg_action_history.append(mean_action[0].numpy())
+    avg_reward.append(np.mean(env.reward_history, axis=1)[-1])
+    if len(env.fidelity_history) > 0:
+        fidelities.append(env.fidelity_history[-1])
+        fidelities_nreps.append(env.fidelity_history_nreps[-1])
+    avg_action_history.append(env.mean_action)
     std_actions.append(std_action[0].numpy())
 
 
@@ -708,7 +708,7 @@ def update_fidelity_info(
     fidelities,
     target_fidelities,
     lookback_window,
-    env,
+    env: BaseQuantumEnvironment,
     update_step,
     mean_action,
     std_action,
@@ -729,17 +729,15 @@ def update_fidelity_info(
                     {
                         "achieved": True,
                         "update_at": update_step,
-                        "mean_action": mean_action[0].numpy(),
+                        "mean_action": env.mean_action,
                         "std_action": std_action.numpy()[0],
-                        "hardware_runtime": np.sum(env.unwrapped.hardware_runtime),
-                        "experiment_runtime": np.sum(env.unwrapped.experiment_runtime),
+                        "hardware_runtime": np.sum(env.hardware_runtime),
+                        "experiment_runtime": np.sum(env.experiment_runtime),
                         "simulation_train_time": time.time() - start_time,
-                        "shots_used": np.cumsum(env.unwrapped.total_shots)[
-                            update_step - 1
-                        ],
+                        "shots_used": np.cumsum(env.total_shots)[update_step - 1],
                         "shots_per_updates": int(
                             np.ceil(
-                                np.cumsum(env.unwrapped.total_shots)[update_step - 1]
+                                np.cumsum(env.total_shots)[update_step - 1]
                                 / update_step
                             )
                         ),
@@ -832,10 +830,10 @@ class CustomPPO:
         fidelity_info,
     ):
         return {
-            "env_ident_str": self.env.unwrapped.ident_str,
+            "env_ident_str": self.unwrapped_env.ident_str,
+            "reward_method": self.unwrapped_env.config.reward_config.reward_method,
             "reward_config": asdict(self.env.unwrapped.config.reward_config),
             "execution_config": asdict(self.env.unwrapped.config.execution_config),
-            # "q_env_config": asdict(self.env.unwrapped.config),
             "training_constraint": self.training_constraint,
             "avg_reward": avg_reward,
             "std_action": std_actions,
@@ -843,11 +841,12 @@ class CustomPPO:
             "fidelity_history_nreps": fidelities_nreps,
             "hardware_runtime": self.env.unwrapped.hardware_runtime,
             "experiment_runtime": self.env.unwrapped.experiment_runtime,
+            "hardware_runtime": self.unwrapped_env.hardware_runtime,
             "action_history": avg_action_history,
-            "best_action_vector": self.env.unwrapped.optimal_action,
-            "total_shots": self.env.unwrapped.total_shots,
+            "best_action_vector": self.unwrapped_env.optimal_action,
+            "total_shots": self.unwrapped_env.total_shots,
             "total_updates": iteration,
-            "n_reps": self.env.unwrapped.n_reps,
+            "n_reps": self.unwrapped_env.n_reps,
             "fidelity_info": fidelity_info,
         }
 
@@ -855,7 +854,6 @@ class CustomPPO:
         self,
         training_config: TrainingConfig,
         train_function_settings: TrainFunctionSettings,
-        **kwargs,
     ):
         """
         Trains the model using Proximal Policy Optimization (PPO) algorithm.
@@ -872,8 +870,6 @@ class CustomPPO:
         self.training_config = training_config
         self.train_function_settings = train_function_settings
 
-        hpo_trial_number = kwargs.get("hpo_trial_number", None)
-
         try:
             fidelity_info = {
                 fidelity: {
@@ -886,10 +882,8 @@ class CustomPPO:
             }
 
             if self.clear_history or self.hpo_mode:
-                self.env.unwrapped.clear_history()
+                self.unwrapped_env.clear_history()
                 self.global_step = 0
-            else:
-                self.global_step = self.env.unwrapped.step_tracker
 
             (
                 self.obs,
@@ -922,27 +916,17 @@ class CustomPPO:
                         std_actions,
                         fidelity_info,
                         start_time,
-                        hpo_trial_number=hpo_trial_number,
                     ):
                         break
 
-            elif isinstance(self.training_constraint, Union[HardwareRuntime, ExperimentRuntime]):
+            elif isinstance(self.training_constraint, HardwareRuntime):
                 # Hardware Constraint Mode: Train until hardware runtime exceeds maximum
-                if isinstance(self.training_constraint, HardwareRuntime):
-                    time_tracker = self.env.unwrapped.hardware_runtime
-                    max_time = self.training_constraint.hardware_runtime
-                    constraint_type = "Hardware Runtime"
-
-                elif isinstance(self.training_constraint, ExperimentRuntime):
-                    time_tracker = self.env.unwrapped.experiment_runtime
-                    max_time = self.training_constraint.experiment_runtime
-                    constraint_type = "Experiment Runtime"
-
-                logging.warning(f"Training Constraint: {constraint_type}")
+                self.max_hardware_runtime = self.training_constraint.hardware_runtime
+                logging.warning("Training Constraint: Hardware Runtime")
                 iteration = 0
                 while (
-                    np.sum(time_tracker)
-                    < max_time
+                    np.sum(self.unwrapped_env.hardware_runtime)
+                    < self.max_hardware_runtime
                 ):
                     iteration += 1
                     if self.execute_training_cycle(
@@ -955,11 +939,10 @@ class CustomPPO:
                         std_actions,
                         fidelity_info,
                         start_time,
-                        hpo_trial_number=hpo_trial_number
                     ):
                         break
 
-            self.env.unwrapped.close()
+            self.unwrapped_env.close()
             self.writer.close()
 
             self.log_fidelity_info_summary(fidelity_info)
@@ -971,21 +954,14 @@ class CustomPPO:
                 logging.error(f"An error occurred during training: {e}")
                 return {
                     "avg_reward": -1.0,
-                    "fidelity_history": [0],
+                    "fidelity_history": [0] * self.total_updates,
                 }
             else:  # Raise the error for debugging in the normal mode
                 raise
 
-    def perform_training_iteration(
-        self,
-        num_prints,
-        hpo_trial_number=None,
-    ):
+    def perform_training_iteration(self):
         """
         Perform a single training iteration of the Proximal Policy Optimization (PPO) algorithm.
-
-        Args:
-            num_prints (int): The number of times to print training progress.
 
         Returns:
             mean_action: The mean action taken during the training iteration.
@@ -1076,26 +1052,30 @@ class CustomPPO:
         explained_var = np.nan if var_y == 0 else 1 - np.var(y_true - y_pred) / var_y
 
         if self.print_debug:
-            print_debug_info(self.env, mean_action, std_action, b_returns, b_advantages, hpo_trial_number=hpo_trial_number)
+            print_debug_info(
+                self.unwrapped_env, mean_action, std_action, b_returns, b_advantages
+            )
 
-        if self.global_step % num_prints == 0:
-            clear_output(wait=True)
+        if self.global_step % self.num_prints == 0:
+            clear_output(wait=False)
             if self.plot_real_time:
-                plot_curves(self.env.unwrapped)
-
-        write_to_tensorboard(
-            self.writer,
-            self.global_step,
-            self.optimizer,
-            v_loss,
-            self.env,
-            clipfracs,
-            entropy_loss,
-            old_approx_kl,
-            approx_kl,
-            pg_loss,
-            explained_var,
-        )
+                plt.close()
+                plot_curves(self.unwrapped_env)
+                plt.draw()
+        if self.save_data:
+            write_to_tensorboard(
+                self.writer,
+                self.global_step,
+                self.optimizer,
+                v_loss,
+                self.env,
+                clipfracs,
+                entropy_loss,
+                old_approx_kl,
+                approx_kl,
+                pg_loss,
+                explained_var,
+            )
 
         return mean_action, std_action
 
@@ -1110,15 +1090,14 @@ class CustomPPO:
         std_actions,
         fidelity_info,
         start_time,
-        hpo_trial_number=None,
     ):
         if self.anneal_learning_rate:
             self.learning_rate_annealing(iteration=iteration)
 
-        mean_action, std_action = self.perform_training_iteration(num_prints, hpo_trial_number=hpo_trial_number)
+        mean_action, std_action = self.perform_training_iteration()
 
         update_metric_lists(
-            self.env,
+            self.unwrapped_env,
             mean_action,
             std_action,
             avg_reward,
@@ -1134,7 +1113,7 @@ class CustomPPO:
                 fidelities,
                 self.target_fidelities,
                 self.lookback_window,
-                self.env,
+                self.unwrapped_env,
                 iteration,
                 mean_action,
                 std_action,
@@ -1176,27 +1155,36 @@ class CustomPPO:
         Adjusts the learning rate based on the given parameters.
 
         Args:
+            env: The environment object.
+            hardware_constraint_use_case: A boolean indicating whether to use hardware constraints.
+            optimizer: The optimizer object.
+            lr: The initial learning rate.
+            total_updates: The total number of updates.
             iteration: The current iteration number (optional).
+            max_hardware_runtime: The maximum hardware runtime (optional).
         """
-        min_lr = 1e-5
-
         if isinstance(self.training_constraint, TotalUpdates):
             frac = 1.0 - (iteration - 1.0) / self.training_constraint.total_updates
-            # if iteration <= 1:
-            #     iteration = 1
-            # frac = np.log(self.training_constraint.total_updates / iteration) / np.log(self.training_constraint.total_updates)
         elif isinstance(self.training_constraint, HardwareRuntime):
-            current_runtime = np.sum(self.env.unwrapped.hardware_runtime)
-            total_runtime = self.training_constraint.hardware_runtime
             frac = 1.0 - (
-                current_runtime
-                / total_runtime
+                np.sum(self.unwrapped_env.hardware_runtime)
+                / self.training_constraint.hardware_runtime
             )
-            # if current_runtime <= 0:
-            #     current_runtime = 1e-10
-            # frac = np.log(total_runtime / current_runtime) / np.log(total_runtime)
         lrnow = frac * self.lr
-        self.optimizer.param_groups[0]["lr"] = max(lrnow, min_lr)
+        self.optimizer.param_groups[0]["lr"] = lrnow
+
+    @property
+    def global_step(self):
+        """
+        The global step count
+        """
+        return self.unwrapped_env.step_tracker
+
+    @global_step.setter
+    def global_step(self, value: int):
+        if not isinstance(value, int):
+            raise ValueError("global_step must be an integer")
+        self.unwrapped_env.step_tracker = value
 
     @property
     def training_results(self):
@@ -1212,27 +1200,57 @@ class CustomPPO:
 
     @property
     def lookback_window(self):
+        """
+        The lookback window for checking if the learning has converged to a stable value.
+        """
         return self.training_config.lookback_window
 
     @property
     def std_actions_eps(self):
+        """
+        The standard deviation of actions to which the training should converge.
+        """
         return self.training_config.std_actions_eps
 
     @property
     def anneal_learning_rate(self):
+        """
+        Whether to anneal the learning rate during training
+        """
         return self.training_config.anneal_learning_rate
 
     @property
     def plot_real_time(self):
+        """
+        Whether to plot the training progress in real time.
+        """
         return self.train_function_settings.plot_real_time
+
+    @plot_real_time.setter
+    def plot_real_time(self, value: bool):
+        if not isinstance(value, bool):
+            raise ValueError("plot_real_time must be a boolean")
+        self.train_function_settings.plot_real_time = value
 
     @property
     def print_debug(self):
         return self.train_function_settings.print_debug
 
+    @print_debug.setter
+    def print_debug(self, value: bool):
+        if not isinstance(value, bool):
+            raise ValueError("print_debug must be a boolean")
+        self.train_function_settings.print_debug = value
+
     @property
     def num_prints(self):
         return self.train_function_settings.num_prints
+
+    @num_prints.setter
+    def num_prints(self, value: int):
+        if not isinstance(value, int):
+            raise ValueError("num_prints must be an integer")
+        self.train_function_settings.num_prints = value
 
     @property
     def hpo_mode(self):
@@ -1240,4 +1258,21 @@ class CustomPPO:
 
     @property
     def clear_history(self):
+        """
+        Whether to clear the history of the environment after training.
+        """
         return self.train_function_settings.clear_history
+
+    @clear_history.setter
+    def clear_history(self, value: bool):
+        if not isinstance(value, bool):
+            raise ValueError("clear_history must be a boolean")
+        self.train_function_settings.clear_history = value
+
+    @property
+    def unwrapped_env(self) -> BaseQuantumEnvironment:
+        return self.env.unwrapped
+
+    @property
+    def save_data(self):
+        return self.train_function_settings.save_data
