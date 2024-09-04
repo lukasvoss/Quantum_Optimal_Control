@@ -277,6 +277,7 @@ class ContextAwareQuantumEnvironment(BaseQuantumEnvironment):
                 baseline_circuit,
                 tgt_register,
                 layout,
+                **self.config.reward_config.reward_args,
             )
             for baseline_circuit, layout in zip(baseline_circuits, layouts)
         ]

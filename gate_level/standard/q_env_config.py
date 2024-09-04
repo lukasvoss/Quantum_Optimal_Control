@@ -41,8 +41,8 @@ def apply_parametrized_circuit(
     target, backend = kwargs["target"], kwargs["backend"]
     gate, physical_qubits = target.get("gate", None), target["physical_qubits"]
     my_qc = QuantumCircuit(q_reg, name=f"{gate.name if gate is not None else 'G'}_cal")
-    optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
-    # optimal_params = np.pi * np.zeros(len(params))
+    # optimal_params = np.pi * np.array([0.0, 0.0, 0.5, 0.5, -0.5, 0.5, -0.5])
+    optimal_params = np.pi * np.zeros(len(params))
 
     # my_qc.rx(params[0], q_reg[0])
     my_qc.u(
@@ -102,7 +102,7 @@ def get_backend(
 
     if backend is None:
         # TODO: Add here your custom backend
-        pass
+        # pass
 
         # backend = FakeTorontoV2()
 
@@ -117,7 +117,7 @@ def get_backend(
             """ Induces a -pi/2 phase """
             return s_overrotation_error(-theta_error)
 
-        # # Define the small overrotation angle (in radians): 1 radian = 180/pi degrees = 57.3 degrees
+        # Define the small overrotation angle (in radians): 1 radian = 180/pi degrees = 57.3 degrees
         theta_error = 0.1 # radians = 5.7 degrees
 
         # # Define the noise model
@@ -137,8 +137,8 @@ def get_backend(
             noise_model.add_quantum_error(s_error, ['s'], [qbit])
             noise_model.add_quantum_error(sdg_error, ['sdg'], [qbit])
         
-        backend = AerSimulator(noise_model=noise_model, coupling_map=CouplingMap.from_full(2), enable_truncation=True) 
-        warnings.warn("No backend was provided, AerSimulator with coherent noise will be used")
+        # backend = AerSimulator(noise_model=noise_model, coupling_map=CouplingMap.from_full(2), enable_truncation=True) 
+        # warnings.warn("No backend was provided, AerSimulator with coherent noise will be used")
 
     if backend is None:
         warnings.warn("No backend was provided, State vector simulation will be used")
