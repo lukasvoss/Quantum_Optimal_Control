@@ -101,7 +101,7 @@ import tensorflow as tf
 from scipy.optimize import minimize
 from tensorflow.keras import Model, Input
 from tensorflow.keras.layers import Dense
-
+from .custom_jax_sim.pulse_estimator_v2 import PulseEstimatorV2
 import keyword
 import re
 from rl_qoc.qconfig import (
@@ -830,26 +830,29 @@ def run_jobs(session: Session, circuits: List[QuantumCircuit], **run_options):
 
 
 def fidelity_from_tomography(
-    qc_list: List[QuantumCircuit],
+    qc_input: List[QuantumCircuit] | QuantumCircuit,
     backend: Optional[Backend],
     target: Operator | QuantumState,
     physical_qubits: Optional[Sequence[int]],
     analysis: Union[BaseAnalysis, None, str] = "default",
     sampler: RuntimeSamplerV2 = None,
+    shots: int = 8192,
 ):
     """
     Extract average state or gate fidelity from batch of Quantum Circuit for target state or gate
 
     Args:
-        qc_list: List of Quantum Circuits
+        qc_input: Quantum Circuit input to benchmark
         backend: Backend instance
         physical_qubits: Physical qubits on which state or process tomography is to be performed
         analysis: Analysis instance
-        target: Target state or gate for fidelity calculation
+        target: Target state or gate for fidelity calculation (must be either Operator or QuantumState)
         sampler: Runtime Sampler
     Returns:
         avg_fidelity: Average state or gate fidelity (over the batch of Quantum Circuits)
     """
+    if isinstance(qc_input, QuantumCircuit):
+        qc_input = [qc_input]
     if isinstance(target, Operator):
         tomo = ProcessTomography
         fidelity = "process_fidelity"
@@ -867,7 +870,7 @@ def fidelity_from_tomography(
                 analysis=analysis,
                 target=target,
             )
-            for qc in qc_list
+            for qc in qc_input
         ],
         backend=backend,
         flatten_results=True,
@@ -880,18 +883,22 @@ def fidelity_from_tomography(
         exp_data.add_data()
         results = process_tomo.analysis.run(exp_data).block_for_results()
     else:
-        results = process_tomo.run().block_for_results()
+        results = process_tomo.run(shots=shots).block_for_results()
 
-    process_results = [
-        results.analysis_results(fidelity)[i].value for i in range(len(qc_list))
-    ]
-    if isinstance(target, Operator):
+    if len(qc_input) == 1:
+        process_results = [results.analysis_results(fidelity).value]
+    else:
+        process_results = [
+            results.analysis_results(fidelity)[i].value for i in range(len(qc_input))
+        ]
+    if isinstance(target, Operator) and target.is_unitary():
         dim, _ = target.dim
         avg_gate_fids = [(dim * f_pro + 1) / (dim + 1) for f_pro in process_results]
 
-        return avg_gate_fids
+        return avg_gate_fids if len(avg_gate_fids) > 1 else avg_gate_fids[0]
     else:  # target is QuantumState
         return process_results
+
 
 
 def get_control_channel_map(backend: BackendV1, qubit_tgt_register: List[int]):
@@ -1402,13 +1409,50 @@ def projected_statevector(
     qubitized_statevector = Statevector(qubitized_statevector)
     return qubitized_statevector
 
+def projected_state(
+    state: np.ndarray | Statevector | DensityMatrix,
+    subsystem_dims: List[int],
+    normalize: bool = True,
+) -> Statevector | DensityMatrix:
+    """
+    Project statevector on qubit space
 
-def qubit_projection(unitary: np.array, subsystem_dims: List[int]):
+    Args:
+        state: State, given as numpy array or QuantumState object
+        subsystem_dims: Subsystem dimensions
+        normalize: Normalize statevector
+    """
+    if not isinstance(state, (np.ndarray, QuantumState)):
+        raise TypeError("State must be either numpy array or QuantumState object")
+    proj = build_qubit_space_projector(
+        subsystem_dims
+    )  # Projector on qubit space (in qudit space)
+    if isinstance(state, np.ndarray):
+        state_type = DensityMatrix if state.ndim == 2 else Statevector
+        output_state: Statevector | DensityMatrix = state_type(state)
+    else:
+        output_state: Statevector | DensityMatrix = state
+    qubitized_state = output_state.evolve(proj)
+
+    if (
+        normalize
+    ) and qubitized_state.trace() != 0:  # Normalize the projected state (which is for now unnormalized due to selection of components)
+        qubitized_state = (
+            qubitized_state / qubitized_state.trace()
+            if isinstance(qubitized_state, DensityMatrix)
+            else qubitized_state / np.linalg.norm(qubitized_state.data)
+        )
+
+    return qubitized_state
+
+def qubit_projection(
+    unitary: np.ndarray | Operator, subsystem_dims: List[int]
+) -> Operator:
     """
     Project unitary on qubit space
 
     Args:
-        unitary: Unitary, given as numpy array
+        unitary: Unitary, given as numpy array or Operator object
         subsystem_dims: Subsystem dimensions
 
     Returns: unitary projected on qubit space as a Qiskit Operator object
@@ -1417,37 +1461,19 @@ def qubit_projection(unitary: np.array, subsystem_dims: List[int]):
     proj = build_qubit_space_projector(
         subsystem_dims
     )  # Projector on qubit space (in qudit space)
-    new_dim = 2 ** len(subsystem_dims)  # Dimension of the qubit space
-    unitary_op = Operator(
-        unitary, input_dims=tuple(subsystem_dims), output_dims=tuple(subsystem_dims)
+    unitary_op = (
+        Operator(
+            unitary, input_dims=tuple(subsystem_dims), output_dims=tuple(subsystem_dims)
+        )
+        if isinstance(unitary, np.ndarray)
+        else unitary
     )  # Unitary operator (in qudit space)
-    qubitized_unitary = np.zeros((new_dim, new_dim), dtype=np.complex128)
-    qubit_count1 = qubit_count2 = 0
-    new_unitary = proj @ unitary_op @ proj  # Projected unitary (in qudit space)
 
-    for i in range(
-        np.prod(subsystem_dims)
-    ):  # Select elements in the projection to build a qubitized unitary
-        for j in range(np.prod(subsystem_dims)):
-            if (
-                new_unitary.data[i, j] != 0
-            ):  # All zeros components correspond to qudit states (due to projection)
-                qubitized_unitary[qubit_count1, qubit_count2] = new_unitary.data[
-                    i, j
-                ]  # Fill the qubitized unitary
-                qubit_count2 += 1
-                if (
-                    qubit_count2 == new_dim
-                ):  # Reset qubit_count2 when it reaches the dimension of the qubit space
-                    qubit_count2 = 0
-                    qubit_count1 += 1
-                    break
-    qubitized_unitary = Operator(
-        qubitized_unitary,
-        input_dims=(2,) * len(subsystem_dims),
-        output_dims=(2,) * len(subsystem_dims),
-    )  # Qubitized unitary as a Qiskit Operator object (Note that is actually not unitary at this point, it's a Channel)
-    return qubitized_unitary
+    qubitized_op = (
+        proj @ unitary_op @ proj.adjoint()
+    )  # Projected unitary (in qubit space)
+    # (Note that is actually not unitary at this point, it's a Channel on the multi-qubit system)
+    return qubitized_op
 
 
 def rotate_unitary(x, unitary: Operator):
@@ -2053,3 +2079,47 @@ def generate_model(
             return Model(inputs=input_layer, outputs=[mean_param, sigma_param]), Model(
                 inputs=input_critic, outputs=critic_output
             )
+        
+def get_2design_input_states(d: int = 4) -> List[Statevector]:
+    """
+    Function that return the 2-design input states (used for CAFE reward scheme)
+    Follows this Reference: https://arxiv.org/pdf/1008.1138 (see equations 2 and 13)
+    """
+    # Define constants
+    golden_ratio = (np.sqrt(5) - 1) / 2
+    omega = np.exp(2 * np.pi * 1j / d)
+
+    # Define computational basis states
+    e0 = np.array([1, 0, 0, 0], dtype=complex)  # |00⟩
+    e1 = np.array([0, 1, 0, 0], dtype=complex)  # |01⟩
+    e2 = np.array([0, 0, 1, 0], dtype=complex)  # |10⟩
+    e3 = np.array([0, 0, 0, 1], dtype=complex)  # |11⟩
+
+    # Create the Z matrix (diagonal matrix with powers of omega)
+    Z = np.diag([omega**r for r in range(d)])
+
+    # Create the X matrix (shift matrix)
+    X = np.zeros((d, d), dtype=complex)
+    for r in range(d-1):
+        X[r, r+1] = 1
+    X[d-1, 0] = 1  # Wrap-around to satisfy the condition for |e_0>
+
+    # Define the fiducial state from Eq. (13)
+    coefficients = 1/(2*np.sqrt(3+golden_ratio)) * \
+        np.array([
+            1 + np.exp(-1j * np.pi / 4),
+            np.exp(1j * np.pi / 4) + 1j * golden_ratio**(-3/2),
+            1 - np.exp(-1j * np.pi / 4),
+            np.exp(1j * np.pi / 4) - 1j * golden_ratio**(-3/2)
+        ])
+
+    fiducial_state = (coefficients[0] * e0 + coefficients[1] * e1 + coefficients[2] * e2 + coefficients[3] * e3).reshape(d, 1)
+    # Prepare all 16 states
+    states = []
+    for k in range(0, d):
+        for l in range(0, d):
+            # state = apply_hw_group(p1, p2, coefficients)
+            state = np.linalg.matrix_power(X, k) @ np.linalg.matrix_power(Z, l) @ fiducial_state
+            states.append(Statevector(state))
+
+    return states
