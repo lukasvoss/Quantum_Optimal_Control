@@ -1,4 +1,7 @@
+import os
 import sys
+import gzip
+import pickle
 project_path = '/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/'
 sys.path.append(project_path)
 import argparse
@@ -39,7 +42,7 @@ def parse_arguments():
     parser.add_argument("--num_qubits", type=int, default=6, help="Number of qubits in the circuit.")
     parser.add_argument("--target_gate", type=str, default="cnot", help="Type of gate to calibrate.")
     parser.add_argument("--gamma_scale", type=float, default=0.05, help="Scaling factor for spillover noise.")
-    parser.add_argument("--total_updates", type=int, default=500, help="Total updates for RL training.")
+    parser.add_argument("--total_updates", type=int, default=10, help="Total updates for RL training.")
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     return parser.parse_args()
 
@@ -105,25 +108,26 @@ def define_backend(circuit, gamma_matrix, param_dict):
         target_subsystem=(2, 3)
     )
 
-def train_rl_agent(env, total_updates):
+def train_rl_agent(env, total_updates, training_settings: dict) -> dict:
     """Train RL agent using PPO algorithm."""
     agent_config = PPOConfig.from_yaml("gate_level/spillover_noise_use_case/agent_config.yaml")
     ppo_agent = CustomPPO(agent_config, env, save_data=False)
     
     ppo_config = TrainingConfig(
         TotalUpdates(total_updates),
-        target_fidelities=[0.999],
-        lookback_window=20,
-        anneal_learning_rate=True,
+        target_fidelities=training_settings["target_fidelities"],
+        lookback_window=training_settings["lookback_window"],
+        anneal_learning_rate=training_settings["anneal_learning_rate"],
     )
     train_settings = TrainFunctionSettings(
-        plot_real_time=True,
+        plot_real_time=training_settings["plot_real_time"],
         print_debug=False,
         num_prints=10,
-        hpo_mode=False,
-        clear_history=True,
+        hpo_mode=training_settings["hpo_mode"],
+        clear_history=training_settings["clear_history"],
     )
-    ppo_agent.train(ppo_config, train_settings)
+    training_results = ppo_agent.train(ppo_config, train_settings)
+    return training_results
 
 def plot_learning_curve(env):
     """Plot RL agent learning curve."""
@@ -158,12 +162,28 @@ def main():
         pass_manager=None,
     )
     
+    ### Hyperparameters
+    batch_size = 32
+    n_reps = [4, 7, 9, 12]
+    n_shots = 100
+    sampling_paulis = 40
+    c_factor = 1
+
+    training_settings = {
+        "target_fidelities": [0.999],
+        "lookback_window": 20,
+        "anneal_learning_rate": True,
+        "plot_real_time": True,
+        "hpo_mode": False,
+        "clear_history": True,
+    }
+
     q_env_config = QEnvConfig(
         backend_config=backend_config,
         target=target,
         action_space=action_space,
         execution_config=ExecutionConfig(
-            batch_size=32, n_reps=[4, 7, 9, 12], n_shots=100, sampling_paulis=40, c_factor=1
+            batch_size=batch_size, n_reps=n_reps, n_shots=n_shots, sampling_paulis=sampling_paulis, c_factor=c_factor
         ),
         reward_config="cafe",
         env_metadata={
@@ -181,15 +201,46 @@ def main():
         circuit_context=noisy_circuit
     )
     rescaled_env = RescaleAndClipAction(q_env, -1, 1)
+
+    # Define RL-specific hyperparameters
+    rl_hyperparams = {
+        "total_updates": args.total_updates,
+        "batchsize": batch_size,
+        "n_reps": n_reps,
+        "n_shots": n_shots,
+        "sampling_paulis": sampling_paulis,
+        "c_factor": c_factor,
+        "plot_real_time": True,
+        "print_debug": False,
+        "num_prints": 10,
+        "hpo_mode": False,
+        "clear_history": True,
+    }
     
     # Train RL agent
-    train_rl_agent(rescaled_env, args.total_updates)
+    training_results = train_rl_agent(rescaled_env, args.total_updates, training_settings)
     
     # Plot learning curve
     # plot_learning_curve(q_env)
     
+    # Create directory if it doesn't exist
+    results_dir = os.path.join(os.path.dirname(__file__), "training_results")
+    os.makedirs(results_dir, exist_ok=True)
+
+    # Combine dictionaries
+    combined_results = {
+        "training_results": training_results,
+        "hyperparams": rl_hyperparams,
+        "training_settings": training_settings,
+    }
+
+    # Save combined results as a pickle.gzip file
+    results_file = os.path.join(results_dir, "results.pickle.gz")
+    with gzip.open(results_file, "wb") as f:
+        pickle.dump(combined_results, f)
+
     # Output final circuit
-    print(qasm3_dumps(q_env.pubs[6].circuit))
+    # print(qasm3_dumps(q_env.pubs[6].circuit))
 
 if __name__ == "__main__":
     main()
