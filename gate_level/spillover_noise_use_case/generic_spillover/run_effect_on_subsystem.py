@@ -36,19 +36,9 @@ from rl_qoc.agent import (
     TotalUpdates
 )
 
-def parse_arguments():
-    """Parse command-line arguments for script customization."""
-    parser = argparse.ArgumentParser(description="Train RL agent for quantum gate calibration.")
-    parser.add_argument("--num_qubits", type=int, default=6, help="Number of qubits in the circuit.")
-    parser.add_argument("--target_gate", type=str, default="cnot", help="Type of gate to calibrate.")
-    parser.add_argument("--gamma_scale", type=float, default=0.05, help="Scaling factor for spillover noise.")
-    parser.add_argument("--total_updates", type=int, default=10, help="Total updates for RL training.")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed.")
-    return parser.parse_args()
-
 def setup_quantum_circuit(num_qubits, seed):
     """Initialize quantum circuit with parameterized rotations."""
-    np.random.seed(seed)
+    # np.random.seed(seed)
     rotation_axes = ["rx"] * num_qubits
     rotation_parameters = ParameterVector("θ", num_qubits)
     cm = CouplingMap.from_line(num_qubits, bidirectional=True)
@@ -86,7 +76,7 @@ def apply_parametrized_circuit(
 
     qc.append(my_qc.to_instruction(label=my_qc.name), q_reg)
 
-def generate_noise_matrix(num_qubits, scale):
+def generate_noise_matrix(num_qubits: int, scale: float) -> np.ndarray:
     """Generate a spillover noise matrix."""
     gamma_matrix = scale * np.round(np.random.rand(num_qubits, num_qubits), 3)
     return gamma_matrix
@@ -129,7 +119,7 @@ def train_rl_agent(env, total_updates, training_settings: dict) -> dict:
     training_results = ppo_agent.train(ppo_config, train_settings)
     return training_results
 
-def plot_learning_curve(env):
+def plot_learning_curve(env) -> None:
     """Plot RL agent learning curve."""
     reward_history = np.array(env.reward_history)
     mean_rewards = np.mean(reward_history, axis=-1)
@@ -138,22 +128,28 @@ def plot_learning_curve(env):
     plt.legend()
     plt.show()
 
-def main():
-    args = parse_arguments()
+def save_training_results(all_results: dict, results_dir: str):
+    os.makedirs(results_dir, exist_ok=True)
+    # Save combined results as a pickle.gzip file
+    results_file_name = params["saving_file_name"] + ".pickle.gz"
+    results_file_path = os.path.join(results_dir, results_file_name)
+    with gzip.open(results_file_path, "wb") as f:
+        pickle.dump(all_results, f)
+
+def main(params: dict) -> None:
     
     # Setup quantum circuit
-    circuit, rotation_parameters, cm = setup_quantum_circuit(args.num_qubits, args.seed)
-    gamma_matrix = generate_noise_matrix(args.num_qubits, args.gamma_scale)
+    circuit, rotation_parameters, _ = setup_quantum_circuit(params["num_qubits"], params["seed"])
+    gamma_matrix = generate_noise_matrix(params["num_qubits"], params["gamma_scale"])
     
-    rotation_angles = np.random.uniform(0, 2 * np.pi, args.num_qubits)
-    param_dict = {theta: val for theta, val in zip(rotation_parameters, rotation_angles)}
+    param_dict = {theta: val for theta, val in zip(rotation_parameters, params["rotation_angles"])}
     
     noisy_circuit = apply_noise_pass(circuit, gamma_matrix, param_dict)
     backend = define_backend(circuit, gamma_matrix, param_dict)
     
     # Define the RL training environment
     action_space = Box(low=-1.0, high=1.0, shape=(7,), dtype=np.float32)
-    target = {"gate": args.target_gate, "physical_qubits": [0, 1]}
+    target = {"gate": params["target_gate"], "physical_qubits": params["physical_qubits"]}
     backend_config = QiskitConfig(
         apply_parametrized_circuit,
         backend=backend,
@@ -162,37 +158,25 @@ def main():
         pass_manager=None,
     )
     
-    ### Hyperparameters
-    batch_size = 32
-    n_reps = [4, 7, 9, 12]
-    n_shots = 100
-    sampling_paulis = 40
-    c_factor = 1
-
-    training_settings = {
-        "target_fidelities": [0.999],
-        "lookback_window": 20,
-        "anneal_learning_rate": True,
-        "plot_real_time": True,
-        "hpo_mode": False,
-        "clear_history": True,
-    }
-
     q_env_config = QEnvConfig(
         backend_config=backend_config,
         target=target,
         action_space=action_space,
         execution_config=ExecutionConfig(
-            batch_size=batch_size, n_reps=n_reps, n_shots=n_shots, sampling_paulis=sampling_paulis, c_factor=c_factor
+            batch_size=params["batch_size"], 
+            n_reps=params["n_reps"], 
+            n_shots=params["n_shots"], 
+            sampling_paulis=params["sampling_paulis"], 
+            c_factor=params["c_factor"]
         ),
-        reward_config="cafe",
+        reward_config=params["reward_type"],
         env_metadata={
             "γ": gamma_matrix,
             "target_subsystem": (2, 3),
-            "rotation_axes": ["rx"] * args.num_qubits,
-            "num_qubits": args.num_qubits,
+            "rotation_axes": ["rx"] * params["num_qubits"],
+            "num_qubits": params["num_qubits"],
             "rotation_parameters": rotation_parameters,
-            "seed": args.seed,
+            "seed": params["seed"],
         },
     )
     
@@ -201,46 +185,68 @@ def main():
         circuit_context=noisy_circuit
     )
     rescaled_env = RescaleAndClipAction(q_env, -1, 1)
-
-    # Define RL-specific hyperparameters
-    rl_hyperparams = {
-        "total_updates": args.total_updates,
-        "batchsize": batch_size,
-        "n_reps": n_reps,
-        "n_shots": n_shots,
-        "sampling_paulis": sampling_paulis,
-        "c_factor": c_factor,
-        "plot_real_time": True,
-        "print_debug": False,
-        "num_prints": 10,
-        "hpo_mode": False,
-        "clear_history": True,
-    }
     
     # Train RL agent
-    training_results = train_rl_agent(rescaled_env, args.total_updates, training_settings)
+    training_results = train_rl_agent(rescaled_env, params["total_updates"], training_settings)
     
     # Plot learning curve
     # plot_learning_curve(q_env)
     
-    # Create directory if it doesn't exist
-    results_dir = os.path.join(os.path.dirname(__file__), "training_results")
-    os.makedirs(results_dir, exist_ok=True)
-
     # Combine dictionaries
     combined_results = {
         "training_results": training_results,
         "hyperparams": rl_hyperparams,
         "training_settings": training_settings,
     }
+    save_training_results(all_results=combined_results, results_dir=params["results_dir"])
 
-    # Save combined results as a pickle.gzip file
-    results_file = os.path.join(results_dir, "results.pickle.gz")
-    with gzip.open(results_file, "wb") as f:
-        pickle.dump(combined_results, f)
 
-    # Output final circuit
-    # print(qasm3_dumps(q_env.pubs[6].circuit))
+
 
 if __name__ == "__main__":
-    main()
+    # Pass arguments through main function
+    seed = 42
+    
+    use_case_params = {
+        "num_qubits": 6,
+        "target_gate": "cnot",
+        "physical_qubits": [0, 1],
+        "gamma_scale": 0.05,
+        "seed": seed,
+    }
+    np.random.seed(seed=seed)
+
+    use_case_params["rotation_angles"] = np.random.uniform(
+        0, 2 * np.pi, use_case_params["num_qubits"]
+    )
+
+    rl_hyperparams = {
+        "total_updates": 4,
+        "batch_size": 32,
+        "n_reps": [4, 7, 9, 12],
+        "n_shots": 100,
+        "sampling_paulis": 40,
+        "c_factor": 1,
+        "plot_real_time": True,
+        "print_debug": False,
+        "num_prints": 10,
+        "hpo_mode": False,
+        "clear_history": True,
+    }
+    training_settings = {
+        "reward_type": "cafe",
+        "target_fidelities": [0.999],
+        "lookback_window": 20,
+        "anneal_learning_rate": True,
+        "plot_real_time": False,
+        "hpo_mode": False,
+        "clear_history": True,
+    }
+    saving_results_settings = {
+        "results_dir": os.path.join(os.path.dirname(__file__), "training_results"),
+        "saving_file_name": f"{use_case_params['target_gate']}-gate_results_{use_case_params['num_qubits']}-qubits_{use_case_params['gamma_scale']}-gamma",
+    }
+
+    params = {**use_case_params, **rl_hyperparams, **training_settings, **saving_results_settings}
+    
+    main(params)
