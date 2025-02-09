@@ -76,9 +76,12 @@ def apply_parametrized_circuit(
 
     qc.append(my_qc.to_instruction(label=my_qc.name), q_reg)
 
-def generate_noise_matrix(num_qubits: int, scale: float) -> np.ndarray:
-    """Generate a spillover noise matrix."""
-    gamma_matrix = scale * np.round(np.random.rand(num_qubits, num_qubits), 3)
+def generate_noise_matrix(num_qubits: int, noise_strength_gamma: float) -> np.ndarray:
+    """Generate a spillover noise matrix with nearest neighbor interaction of qubits being aligned in a line."""
+    gamma_matrix = np.zeros((num_qubits, num_qubits))
+    for i in range(num_qubits - 1):
+        gamma_matrix[i, i + 1] = noise_strength_gamma
+        gamma_matrix[i + 1, i] = noise_strength_gamma
     return gamma_matrix
 
 def apply_noise_pass(circuit, gamma_matrix, param_dict):
@@ -101,7 +104,7 @@ def define_backend(circuit, gamma_matrix, param_dict):
 def train_rl_agent(env, total_updates, training_settings: dict) -> dict:
     """Train RL agent using PPO algorithm."""
     agent_config = PPOConfig.from_yaml("gate_level/spillover_noise_use_case/agent_config.yaml")
-    ppo_agent = CustomPPO(agent_config, env, save_data=False)
+    ppo_agent = CustomPPO(agent_config, env, save_data=True)
     
     ppo_config = TrainingConfig(
         TotalUpdates(total_updates),
@@ -136,6 +139,9 @@ def save_training_results(all_results: dict, results_dir: str):
     with gzip.open(results_file_path, "wb") as f:
         pickle.dump(all_results, f)
 
+def create_reward_string(training_settings, use_case_params):
+        return f"results_{training_settings['reward_type']}-reward_{use_case_params['target_gate']}-gate_{use_case_params['num_qubits']}-qubits_{use_case_params['gamma_scale']}-gamma"
+
 def main(params: dict) -> None:
     
     # Setup quantum circuit
@@ -145,6 +151,7 @@ def main(params: dict) -> None:
     param_dict = {theta: val for theta, val in zip(rotation_parameters, params["rotation_angles"])}
     
     noisy_circuit = apply_noise_pass(circuit, gamma_matrix, param_dict)
+    # noisy_circuit.draw(output="mpl")
     backend = define_backend(circuit, gamma_matrix, param_dict)
     
     # Define the RL training environment
@@ -188,6 +195,8 @@ def main(params: dict) -> None:
     
     # Train RL agent
     training_results = train_rl_agent(rescaled_env, params["total_updates"], training_settings)
+    training_results["reward_type"] = params["reward_type"]
+    training_results["gamma_matrix"] = gamma_matrix
     
     # Plot learning curve
     # plot_learning_curve(q_env)
@@ -195,7 +204,7 @@ def main(params: dict) -> None:
     # Combine dictionaries
     combined_results = {
         "training_results": training_results,
-        "hyperparams": rl_hyperparams,
+        "rl_hyperparams": rl_hyperparams,
         "training_settings": training_settings,
     }
     save_training_results(all_results=combined_results, results_dir=params["results_dir"])
@@ -206,6 +215,7 @@ def main(params: dict) -> None:
 if __name__ == "__main__":
     # Pass arguments through main function
     seed = 42
+    np.random.seed(seed=seed)
     
     use_case_params = {
         "num_qubits": 6,
@@ -214,27 +224,25 @@ if __name__ == "__main__":
         "gamma_scale": 0.05,
         "seed": seed,
     }
-    np.random.seed(seed=seed)
 
     use_case_params["rotation_angles"] = np.random.uniform(
         0, 2 * np.pi, use_case_params["num_qubits"]
     )
 
     rl_hyperparams = {
-        "total_updates": 4,
+        "total_updates": 500,
         "batch_size": 32,
         "n_reps": [4, 7, 9, 12],
         "n_shots": 100,
         "sampling_paulis": 40,
         "c_factor": 1,
-        "plot_real_time": True,
         "print_debug": False,
         "num_prints": 10,
         "hpo_mode": False,
         "clear_history": True,
     }
     training_settings = {
-        "reward_type": "cafe",
+        "reward_type": "channel", # "state", "fidelity", "cafe", "orbit", "channel"
         "target_fidelities": [0.999],
         "lookback_window": 20,
         "anneal_learning_rate": True,
@@ -242,9 +250,10 @@ if __name__ == "__main__":
         "hpo_mode": False,
         "clear_history": True,
     }
+    
     saving_results_settings = {
         "results_dir": os.path.join(os.path.dirname(__file__), "training_results"),
-        "saving_file_name": f"{use_case_params['target_gate']}-gate_results_{use_case_params['num_qubits']}-qubits_{use_case_params['gamma_scale']}-gamma",
+        "saving_file_name": create_reward_string(training_settings, use_case_params),
     }
 
     params = {**use_case_params, **rl_hyperparams, **training_settings, **saving_results_settings}
