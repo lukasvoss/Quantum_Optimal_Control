@@ -642,6 +642,12 @@ class CustomPPO:
         """
         return self.agent_config.n_epochs
 
+    @n_epochs.setter
+    def n_epochs(self, value: int):
+        if not isinstance(value, int):
+            raise ValueError("n_epochs must be an integer")
+        self.agent_config.n_epochs = value
+
     @property
     def lr(self):
         """
@@ -725,6 +731,12 @@ class CustomPPO:
         The size of the minibatch
         """
         return self.agent_config.minibatch_size
+
+    @minibatch_size.setter
+    def minibatch_size(self, value: int):
+        if not isinstance(value, int):
+            raise ValueError("minibatch_size must be an integer")
+        self.agent_config.minibatch_size = value
 
 
 def take_step(

@@ -146,29 +146,19 @@ class HyperparameterOptimizer:
         experimentally costly hyperparameters.
         """
 
-        # q_env.unwrapped.backend
-        self.agent_config, self.hyperparams = create_hpo_agent_config(
-            trial, self.hpo_config_file_data, self.path_agent_config
-        )
+        self.hyperparams = create_hpo_agent_config(trial, self.hpo_config.hpo_scope)
 
-        # Include batchsize, n_shots, and sampling_Pauli_space in the hpo scope
-        self.q_env.unwrapped.batch_size = self.agent_config["BATCHSIZE"]
-        self.q_env.unwrapped.n_shots = self.agent_config["N_SHOTS"]
-        self.q_env.unwrapped.sampling_Pauli_space = self.agent_config["SAMPLE_PAULIS"]
-
-        print("MINIBATCH_SIZE", self.agent_config["MINIBATCH_SIZE"])
-        print("NUM_MINIBATCHES", self.agent_config["NUM_MINIBATCHES"])
-        print("BATCHSIZE", self.agent_config["BATCHSIZE"])
-        print("N_SHOTS", self.agent_config["N_SHOTS"])
-        print("SAMPLE_PAULIS", self.agent_config["SAMPLE_PAULIS"])
-
-        # train_fn = make_train_ppo(self.agent_config, self.q_env, hpo_mode=True)
-        ppo_agent = CustomPPO(self.agent_config, self.q_env)
+        for key, value in self.hyperparams.items():
+            lower_key = key.lower()
+            if hasattr(self.q_env.unwrapped, lower_key):
+                setattr(self.q_env.unwrapped, lower_key, value)
+            elif hasattr(self.hpo_config.agent, lower_key):
+                setattr(self.hpo_config.agent, lower_key, value)
         start_time = time.time()
-        training_results = ppo_agent.train(
+        training_results = self.hpo_config.agent.train(
             training_config=self.training_config,
             train_function_settings=self.train_function_settings,
-            hpo_trial_number=trial.number,
+            # hpo_trial_number=trial.number,
         )
 
         simulation_training_time = time.time() - start_time
@@ -258,8 +248,9 @@ class HyperparameterOptimizer:
 
         return (
             f"{self.q_env.unwrapped.ident_str}_{self.training_constraint}_"
+            + f"{self.q_env.config.reward_method.upper()}-reward_"
             + f"{reward_info_str}_"
-            + f"custom-cost-value-{round(self.best_trial.value, 6)}"
+            + f"fidelity-{1 - round(self.best_trial.value, 6)}"  # TODO: Adjust in case of using a different cost function than infidelity
             + "_timestamp_"
             + datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
             + ".pickle.gz"
@@ -324,7 +315,9 @@ class HyperparameterOptimizer:
 
         logging.warning("Best trial:")
         logging.warning("-------------------------")
-        logging.warning("  Custom Cost Value: {}".format(study.best_trial.value))
+        logging.warning(
+            "  Final avg. gate fidelity: {}".format(study.best_trial.value)
+        )  # TODO: Adjust in case of using a different cost function than infidelity
         logging.warning("  Hyperparameters: ")
         for key, value in study.best_trial.params.items():
             logging.warning("    {}: {}".format(key, value))
@@ -332,7 +325,7 @@ class HyperparameterOptimizer:
         (
             logging.warning(
                 "The best action vector: {}".format(
-                    self.data[0]["training_results"]["best_action_vector"]
+                    self.data[0]["training_results"]["mean_action"]
                 )
             )
             if len(self.data) > 0

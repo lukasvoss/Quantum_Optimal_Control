@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 from qiskit import QuantumRegister
 from qiskit.circuit import QuantumCircuit, ParameterVector
 from qiskit.transpiler import PassManager, CouplingMap
-from qiskit.qasm3 import dumps as qasm3_dumps
 from gymnasium.spaces import Box
 
 # Custom imports from project
