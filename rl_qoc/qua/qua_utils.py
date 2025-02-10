@@ -97,7 +97,7 @@ def parameter_table_from_qiskit(
     elif isinstance(parameter_input, (Schedule, ScheduleBlock)):
         for channel in list(
             filter(lambda ch: ch.is_parameterized(), parameter_input.channels)
-        ): 
+        ):
             ch_params = list(channel.parameters)
             if len(ch_params) > 1:
                 raise NotImplementedError(

@@ -320,7 +320,6 @@ class BaseQuantumEnvironment(ABC, Env):
 
         return self._get_obs(), self._get_info()
 
-
     def simulate_circuit(
         self, qc: QuantumCircuit, params: np.array, update_env_history: bool = True
     ) -> np.array:

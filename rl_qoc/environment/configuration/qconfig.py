@@ -16,6 +16,7 @@ from .benchmark_config import BenchmarkConfig
 def default_benchmark_config():
     return BenchmarkConfig()
 
+
 @dataclass
 class QEnvConfig:
     """

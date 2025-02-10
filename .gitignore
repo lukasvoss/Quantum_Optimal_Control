@@ -1,3 +1,5 @@
+.gitignore
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -136,3 +138,26 @@ pulse_level/qiskit_pulse/CustomDynamicsBackend.json
 gate_level/spillover_noise_use_case/runs/
 
 gate_level/spillover_noise_use_case/use_case_x_gate/runs/
+
+# pdfs, tfrecords, and other large files
+*.pdf
+*.csv
+*.png
+*.gif
+*.key
+*.pickle
+*.pkl
+*.pickle.gzip
+*.gz
+*.zip
+*.tar.gz
+events.out.tfevents.*
+
+/venv_qiskit
+*.dat
+gate_level/spillover_noise_use_case/generic_spillover/test_running_script.py
+Dockerfile
+*.wandb
+*.patch
+*.json
+wandb/

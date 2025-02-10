@@ -1,3 +1,4 @@
+from dataclasses import asdict
 import sys
 import os
 
@@ -82,9 +83,10 @@ class HyperparameterOptimizer:
             direction="minimize",
             study_name=f'{self._get_study_name()}_{datetime.now().strftime("%d-%m-%Y_%H:%M:%S")}',
         )
-        self.q_env.unwrapped.modify_environment_params(
-            target_fidelities=self.target_fidelities
-        )
+        # XXX: Temporarly disable automatic setting of n_reps due to issues in traning progress (11 July 2024)
+        # self.q_env.unwrapped.modify_environment_params(
+        #     target_fidelities=self.target_fidelities
+        # )
 
         self._log_training_parameters()
         time.sleep(4)
@@ -154,12 +156,19 @@ class HyperparameterOptimizer:
         self.q_env.unwrapped.n_shots = self.agent_config["N_SHOTS"]
         self.q_env.unwrapped.sampling_Pauli_space = self.agent_config["SAMPLE_PAULIS"]
 
+        print("MINIBATCH_SIZE", self.agent_config["MINIBATCH_SIZE"])
+        print("NUM_MINIBATCHES", self.agent_config["NUM_MINIBATCHES"])
+        print("BATCHSIZE", self.agent_config["BATCHSIZE"])
+        print("N_SHOTS", self.agent_config["N_SHOTS"])
+        print("SAMPLE_PAULIS", self.agent_config["SAMPLE_PAULIS"])
+
         # train_fn = make_train_ppo(self.agent_config, self.q_env, hpo_mode=True)
         ppo_agent = CustomPPO(self.agent_config, self.q_env)
         start_time = time.time()
         training_results = ppo_agent.train(
             training_config=self.training_config,
             train_function_settings=self.train_function_settings,
+            hpo_trial_number=trial.number,
         )
 
         simulation_training_time = time.time() - start_time
@@ -169,7 +178,10 @@ class HyperparameterOptimizer:
         else:
             return float("inf")  # Catch errors in the trianing process
 
-        custom_cost_value = self._calculate_custom_cost(training_results)
+        # custom_cost_value = self._calculate_custom_cost(training_results)
+        custom_cost_value = 1.0 - max(
+            training_results["fidelity_history"]
+        )  # Infidelity
 
         # Keep track of all trials data
         trial_data = {
@@ -187,64 +199,70 @@ class HyperparameterOptimizer:
 
         return custom_cost_value
 
-    def _calculate_custom_cost(self, training_results: dict) -> float:
-        """
-        Calculates a custom cost with considerations for:
-        - The number of shots used to achieve the highest target fidelity,
-        - Rewarding the achievement of target fidelities,
-        - Penalizing based on the closeness for unachieved target fidelities.
+    # def _calculate_custom_cost(self, training_results: dict) -> float:
+    #     """
+    #     Calculates a custom cost with considerations for:
+    #     - The number of shots used to achieve the highest target fidelity,
+    #     - Rewarding the achievement of target fidelities,
+    #     - Penalizing based on the closeness for unachieved target fidelities.
 
-        Parameters:
-        - training_results (dict): Dictionary containing training outcomes.
-        - fidelity_reward (dict): Dictionary containing rewards and penalties for fidelities and shots used
+    #     Parameters:
+    #     - training_results (dict): Dictionary containing training outcomes.
+    #     - fidelity_reward (dict): Dictionary containing rewards and penalties for fidelities and shots used
 
-        Returns:
-        - float: The calculated custom cost.
-        """
+    #     Returns:
+    #     - float: The calculated custom cost.
+    #     """
+    #     total_cost = 0
+    #     highest_fidelity_achieved_info = None
+    #     target_fidelities = list(training_results["fidelity_info"].keys())
 
-        total_cost = 0
-        highest_fidelity_achieved_info = None
-        target_fidelities = list(training_results["fidelity_info"].keys())
+    #     # Identify the highest fidelity achieved and its info
+    #     for fidelity in sorted(target_fidelities, reverse=True):
+    #         info = training_results["fidelity_info"][fidelity]
+    #         if info["achieved"]:
+    #             highest_fidelity_achieved_info = info
+    #             break
 
-        # Identify the highest fidelity achieved and its info
-        for fidelity in sorted(target_fidelities, reverse=True):
-            info = training_results["fidelity_info"][fidelity]
-            if info["achieved"]:
-                highest_fidelity_achieved_info = info
-                break
+    #     if highest_fidelity_achieved_info:
+    #         # Use shots up to the highest fidelity achieved
+    #         shots_used = highest_fidelity_achieved_info["shots_used"]
+    #     else:
+    #         # If no fidelities were achieved, consider all shots used
+    #         shots_used = sum(training_results["total_shots"])
 
-        if highest_fidelity_achieved_info:
-            # Use shots up to the highest fidelity achieved
-            shots_used = highest_fidelity_achieved_info["shots_used"]
-        else:
-            # If no fidelities were achieved, consider all shots used
-            shots_used = sum(training_results["total_shots"])
+    #     # Apply base penalty for the shots used
+    #     total_cost += shots_used * self.penalty_n_shots
 
-        # Apply base penalty for the shots used
-        total_cost += shots_used * self.penalty_n_shots
+    #     # Calculate reward/penalty for each target fidelity
+    #     for fidelity in target_fidelities:
+    #         info = training_results["fidelity_info"][fidelity]
+    #         if info["achieved"]:
+    #             # Reward for achieving the fidelity, inversely proportional to shots used
+    #             total_cost -= self.fidelity_reward
+    #         else:
+    #             # Apply penalty based on how close the training came to the fidelity
+    #             highest_fidelity_reached = max(training_results["fidelity_history"])
+    #             closeness = fidelity - highest_fidelity_reached
+    #             total_cost += closeness * self.penalty_per_missed_fidelity
 
-        # Calculate reward/penalty for each target fidelity
-        for fidelity in target_fidelities:
-            info = training_results["fidelity_info"][fidelity]
-            if info["achieved"]:
-                # Reward for achieving the fidelity, inversely proportional to shots used
-                total_cost -= self.fidelity_reward
-            else:
-                # Apply penalty based on how close the training came to the fidelity
-                highest_fidelity_reached = max(training_results["fidelity_history"])
-                closeness = fidelity - highest_fidelity_reached
-                total_cost += closeness * self.penalty_per_missed_fidelity
-
-        return total_cost
+    #     return total_cost
 
     def _generate_filename(self):
         """Generate the file name where the best configuration will be saved."""
+        reward_info = [
+            f"{key}-{value}"
+            for key, value in asdict(self.q_env.unwrapped.config.reward_config).items()
+        ]
+        reward_info_str = "_".join(reward_info)
+
         return (
             f"{self.q_env.unwrapped.ident_str}_{self.training_constraint}_"
+            + f"{reward_info_str}_"
             + f"custom-cost-value-{round(self.best_trial.value, 6)}"
             + "_timestamp_"
             + datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-            + ".pickle.gzip"
+            + ".pickle.gz"
         )
 
     def _save_results(self):

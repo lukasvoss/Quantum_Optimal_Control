@@ -39,12 +39,8 @@ def get_backend():
 
 target = {"state": Statevector.from_label("1"), "physical_qubits": [0]}
 instruction_durations = {}
-action_space_low = np.array(
-    [0.001], dtype=np.float32
-)  # [amp, phase, phase, duration]
-action_space_high = np.array(
-    [0.1], dtype=np.float32
-)  # [amp, phase, phase, duration]
+action_space_low = np.array([0.001], dtype=np.float32)  # [amp, phase, phase, duration]
+action_space_high = np.array([0.1], dtype=np.float32)  # [amp, phase, phase, duration]
 action_space = Box(action_space_low, action_space_high)
 qibo_config = QiboConfig(
     param_circuit,
@@ -60,14 +56,20 @@ q_env_config = QEnvConfig(
     backend_config=qibo_config,
     action_space=action_space,
     reward_config=StateRewardConfig(),
-    benchmark_config=BenchmarkConfig(1, check_on_exp=True, method ="rb"),
+    benchmark_config=BenchmarkConfig(1, check_on_exp=True, method="rb"),
     execution_config=ExecutionConfig(
-        batch_size=1, sampling_paulis=50, n_shots=1000, n_reps=1, c_factor = 1,
+        batch_size=1,
+        sampling_paulis=50,
+        n_shots=1000,
+        n_reps=1,
+        c_factor=1,
     ),
 )
 
 # env = QuantumEnvironment(q_env_config)
-env = QiboEnvironment(q_env_config, )
+env = QiboEnvironment(
+    q_env_config,
+)
 # env.circuits[0].draw(output="mpl")
 # # %%
 # env.baseline_circuits[0].draw(output="mpl")
@@ -104,4 +106,4 @@ train_function_settings = TrainFunctionSettings(
 )
 # %%
 # ppo.train(training_config, train_function_settings)
-env.step(np.expand_dims(np.array([0.3333]), axis = 0))
+env.step(np.expand_dims(np.array([0.3333]), axis=0))
