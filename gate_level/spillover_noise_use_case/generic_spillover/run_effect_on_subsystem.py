@@ -2,6 +2,7 @@ import os
 import sys
 import gzip
 import pickle
+from typing import Dict, Tuple, Union
 
 project_path = "/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/"
 sys.path.append(project_path)
@@ -35,9 +36,18 @@ from rl_qoc.agent import (
     TrainFunctionSettings,
     TotalUpdates,
 )
+from rl_qoc.hpo.hpo_config import (
+    QUANTUM_ENVIRONMENT,
+    DirectoryPaths,
+    HPOConfig,
+    HardwarePenaltyWeights,
+)
+from rl_qoc.hpo.hyperparameter_optimization import HyperparameterOptimizer
 
 
-def setup_quantum_circuit(num_qubits, seed):
+def setup_quantum_circuit(
+    num_qubits: int,
+) -> Tuple[QuantumCircuit, ParameterVector, CouplingMap]:
     """Initialize quantum circuit with parameterized rotations."""
     # np.random.seed(seed)
     rotation_axes = ["rx"] * num_qubits
@@ -90,7 +100,9 @@ def generate_noise_matrix(num_qubits: int, noise_strength_gamma: float) -> np.nd
     return gamma_matrix
 
 
-def apply_noise_pass(circuit, gamma_matrix, param_dict):
+def apply_noise_pass(
+    circuit: QuantumCircuit, gamma_matrix: np.ndarray, param_dict: Dict
+):
     """Apply custom noise pass to the circuit."""
     pm = PassManager(
         [
@@ -103,66 +115,16 @@ def apply_noise_pass(circuit, gamma_matrix, param_dict):
     return pm.run(circuit.assign_parameters(param_dict))
 
 
-def define_backend(circuit, gamma_matrix, param_dict):
+def define_backend(circuit: QuantumCircuit, gamma_matrix: np.ndarray, param_dict: Dict):
     """Define the backend with noise model."""
     return noisy_backend(
         circuit.assign_parameters(param_dict), gamma_matrix, target_subsystem=(2, 3)
     )
 
 
-def train_rl_agent(env, total_updates, training_settings: dict) -> dict:
-    """Train RL agent using PPO algorithm."""
-    agent_config = PPOConfig.from_yaml(
-        "gate_level/spillover_noise_use_case/agent_config.yaml"
-    )
-    ppo_agent = CustomPPO(agent_config, env, save_data=True)
-
-    ppo_config = TrainingConfig(
-        TotalUpdates(total_updates),
-        target_fidelities=training_settings["target_fidelities"],
-        lookback_window=training_settings["lookback_window"],
-        anneal_learning_rate=training_settings["anneal_learning_rate"],
-    )
-    train_settings = TrainFunctionSettings(
-        plot_real_time=training_settings["plot_real_time"],
-        print_debug=False,
-        num_prints=10,
-        hpo_mode=training_settings["hpo_mode"],
-        clear_history=training_settings["clear_history"],
-    )
-    training_results = ppo_agent.train(ppo_config, train_settings)
-    return training_results
-
-
-def plot_learning_curve(env) -> None:
-    """Plot RL agent learning curve."""
-    reward_history = np.array(env.reward_history)
-    mean_rewards = np.mean(reward_history, axis=-1)
-    plt.plot(mean_rewards, label="Mean Batch Rewards")
-    plt.plot(env.fidelity_history, label="Fidelity")
-    plt.legend()
-    plt.show()
-
-
-def save_training_results(all_results: dict, results_dir: str):
-    os.makedirs(results_dir, exist_ok=True)
-    # Save combined results as a pickle.gzip file
-    results_file_name = params["saving_file_name"] + ".pickle.gz"
-    results_file_path = os.path.join(results_dir, results_file_name)
-    with gzip.open(results_file_path, "wb") as f:
-        pickle.dump(all_results, f)
-
-
-def create_reward_string(training_settings, use_case_params):
-    return f"results_{training_settings['reward_type']}-reward_{use_case_params['target_gate']}-gate_{use_case_params['num_qubits']}-qubits_{use_case_params['gamma_scale']}-gamma"
-
-
-def main(params: dict) -> None:
-
+def build_rl_environment(params: Dict) -> QUANTUM_ENVIRONMENT:
     # Setup quantum circuit
-    circuit, rotation_parameters, _ = setup_quantum_circuit(
-        params["num_qubits"], params["seed"]
-    )
+    circuit, rotation_parameters, _ = setup_quantum_circuit(params["num_qubits"])
     gamma_matrix = generate_noise_matrix(params["num_qubits"], params["gamma_scale"])
 
     param_dict = {
@@ -211,11 +173,76 @@ def main(params: dict) -> None:
 
     q_env = ContextAwareQuantumEnvironment(q_env_config, circuit_context=noisy_circuit)
     rescaled_env = RescaleAndClipAction(q_env, -1, 1)
+    return rescaled_env, gamma_matrix
 
-    # Train RL agent
-    training_results = train_rl_agent(
-        rescaled_env, params["total_updates"], training_settings
+
+def prepare_hpo_config(
+    env: QUANTUM_ENVIRONMENT, ppo_agent: CustomPPO, training_settings: Dict
+) -> HPOConfig:
+    # Prepare HPO config
+
+    path_agent_config = (
+        f"{project_path}/gate_level/spillover_noise_use_case/agent_config.yaml"
     )
+    path_hpo_config = (
+        f"{project_path}/gate_level/spillover_noise_use_case/noise_hpo_config.yaml"
+    )
+    save_results_path = "hpo_results_feb2025"
+
+    # Hardware penalty weights are currenlty not used as the cost function is the infidelity (see HPO class for reference)
+    experimental_penalty_weights = HardwarePenaltyWeights(
+        shots_penalty=0.01,
+        missed_fidelity_penalty=1e4,
+        fidelity_reward=2 * 1e4,
+    )
+
+    directory_paths = DirectoryPaths(
+        agent_config_path=path_agent_config,
+        hpo_config_path=path_hpo_config,
+        save_results_path=save_results_path,
+    )
+
+    hpo_config = HPOConfig(
+        q_env=env,
+        agent=ppo_agent,
+        num_trials=training_settings["num_hpo_trials"],
+        hardware_penalty_weights=experimental_penalty_weights,
+        hpo_paths=directory_paths,
+    )
+    return hpo_config
+
+
+def run_hpo_training(
+    env: QUANTUM_ENVIRONMENT,
+    ppo_agent: CustomPPO,
+    ppo_config: TrainingConfig,
+    train_settings: TrainFunctionSettings,
+    training_settings: Dict,
+) -> Dict:
+    """Run training in HPO mode."""
+    hpo_config = prepare_hpo_config(env, ppo_agent, training_settings)
+    hpo_engine = HyperparameterOptimizer(
+        hpo_config=hpo_config, callback=print_summary_callback
+    )
+    training_results = hpo_engine.optimize_hyperparameters(
+        training_config=ppo_config, train_function_settings=train_settings
+    )
+    return training_results
+
+
+def run_standard_training(
+    ppo_agent: CustomPPO,
+    ppo_config: TrainingConfig,
+    train_settings: TrainFunctionSettings,
+) -> Dict:
+    """Run standard training (without HPO)."""
+    training_results = ppo_agent.train(ppo_config, train_settings)
+    return training_results
+
+
+def post_process_and_save(
+    training_results: Dict, params: Dict, gamma_matrix: np.ndarray
+):
     training_results["reward_type"] = params["reward_type"]
     training_results["gamma_matrix"] = gamma_matrix
 
@@ -231,6 +258,79 @@ def main(params: dict) -> None:
     save_training_results(
         all_results=combined_results, results_dir=params["results_dir"]
     )
+
+
+# Define your callback function for the HPO
+def print_summary_callback(trial_data, **kwargs):
+    print(f"Trial number: {trial_data['trial_number']}")
+    print(f"Max Fidelity: {max(trial_data['training_results']['fidelity_history'])}")
+    print(
+        f"Hardware Runtime: {round(sum(trial_data['training_results']['hardware_runtime']), 2)} seconds"
+    )
+    print(f"Custom cost value: {round(trial_data['custom_cost_value'], 2)}")
+    print(f"Simulation runtime: {round(trial_data['simulation runtime'], 2)} seconds")
+    for key, value in kwargs.items():
+        print(f"{key}: {value}")
+
+
+def train_rl_agent(
+    env: QUANTUM_ENVIRONMENT, training_settings: Dict, gamma_matrix: np.ndarray
+) -> None:
+    """Train RL agent using PPO algorithm."""
+    agent_config = PPOConfig.from_yaml(
+        "gate_level/spillover_noise_use_case/agent_config.yaml"
+    )
+    ppo_agent = CustomPPO(
+        agent_config, env, save_data=training_settings["log_training_wandb"]
+    )
+
+    ppo_config = TrainingConfig(
+        TotalUpdates(training_settings["total_updates"]),
+        target_fidelities=training_settings["target_fidelities"],
+        lookback_window=training_settings["lookback_window"],
+        anneal_learning_rate=training_settings["anneal_learning_rate"],
+    )
+    train_settings = TrainFunctionSettings(
+        plot_real_time=training_settings["plot_real_time"],
+        print_debug=False,
+        num_prints=10,
+        hpo_mode=training_settings["hpo_mode"],
+        clear_history=training_settings["clear_history"],
+    )
+
+    if training_settings["hpo_mode"]:
+        run_hpo_training(env, ppo_agent, ppo_config, train_settings, training_settings)
+    else:
+        training_results = run_standard_training(ppo_agent, ppo_config, train_settings)
+        post_process_and_save(training_results, params, gamma_matrix)
+
+
+def plot_learning_curve(env) -> None:
+    """Plot RL agent learning curve."""
+    reward_history = np.array(env.reward_history)
+    mean_rewards = np.mean(reward_history, axis=-1)
+    plt.plot(mean_rewards, label="Mean Batch Rewards")
+    plt.plot(env.fidelity_history, label="Fidelity")
+    plt.legend()
+    plt.show()
+
+
+def save_training_results(all_results: dict, results_dir: str):
+    os.makedirs(results_dir, exist_ok=True)
+    # Save combined results as a pickle.gzip file
+    results_file_name = params["saving_file_name"] + ".pickle.gz"
+    results_file_path = os.path.join(results_dir, results_file_name)
+    with gzip.open(results_file_path, "wb") as f:
+        pickle.dump(all_results, f)
+
+
+def create_file_name(training_settings, use_case_params):
+    return f"results_{training_settings['reward_type']}-reward_{use_case_params['target_gate']}-gate_{use_case_params['num_qubits']}-qubits_{use_case_params['gamma_scale']}-gamma"
+
+
+def main(params: Dict) -> None:
+    rescaled_env, gamma_matrix = build_rl_environment(params)
+    train_rl_agent(rescaled_env, params, gamma_matrix)
 
 
 if __name__ == "__main__":
@@ -251,30 +351,33 @@ if __name__ == "__main__":
     )
 
     rl_hyperparams = {
-        "total_updates": 500,
         "batch_size": 32,
         "n_reps": [4, 7, 9, 12],
         "n_shots": 100,
         "sampling_paulis": 40,
         "c_factor": 1,
-        "print_debug": False,
-        "num_prints": 10,
-        "hpo_mode": False,
-        "clear_history": True,
     }
     training_settings = {
-        "reward_type": "channel",  # "state", "fidelity", "cafe", "orbit", "channel"
+        "total_updates": 10,
+        "reward_type": "fidelity",  # "state", "fidelity", "cafe", "orbit", "channel"
         "target_fidelities": [0.999],
         "lookback_window": 20,
         "anneal_learning_rate": True,
         "plot_real_time": False,
         "hpo_mode": False,
         "clear_history": True,
+        "log_training_wandb": True,  # TODO: Set to True to log training metrics to wandb dashboard (online)
+        "print_debug": False,
+        "num_prints": 10,
+        "clear_history": True,
     }
+    # TODO: Configure HPO settings
+    training_settings["hpo_mode"] = True
+    training_settings["num_hpo_trials"] = 2
 
     saving_results_settings = {
         "results_dir": os.path.join(os.path.dirname(__file__), "training_results"),
-        "saving_file_name": create_reward_string(training_settings, use_case_params),
+        "saving_file_name": create_file_name(training_settings, use_case_params),
     }
 
     params = {

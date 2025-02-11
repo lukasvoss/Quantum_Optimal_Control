@@ -248,7 +248,7 @@ class HyperparameterOptimizer:
 
         return (
             f"{self.q_env.unwrapped.ident_str}_{self.training_constraint}_"
-            + f"{self.q_env.config.reward_method.upper()}-reward_"
+            + f"{self.q_env.unwrapped.config.reward_method.upper()}-reward_"
             + f"{reward_info_str}_"
             + f"fidelity-{1 - round(self.best_trial.value, 6)}"  # TODO: Adjust in case of using a different cost function than infidelity
             + "_timestamp_"

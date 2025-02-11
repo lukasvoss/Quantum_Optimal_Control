@@ -183,10 +183,11 @@ class BaseQuantumEnvironment(ABC, Env):
 
         """
 
-    def perform_action(self, actions: np.array):
+    def perform_action(self, actions: np.array, update_env_history: bool = True):
         """
-        Send the action batch to the quantum system and retrieve the reward
+        Send the action batch to the quantum system and retrieve reward
         :param actions: action vectors to execute on quantum system
+        :param update_env_history: Boolean to update the environment history
         :return: Reward table (reward for each action in the batch)
         """
         qc = self.circuits[self.trunc_index].copy()
@@ -201,33 +202,45 @@ class BaseQuantumEnvironment(ABC, Env):
         if self.do_benchmark():  # Benchmarking or fidelity access
             fids = self.compute_benchmarks(qc, params)
             if reward_method == "fidelity":
-                self._total_shots.append(0)
-                self._hardware_runtime.append(0.0)
+                if update_env_history:
+                    self._total_shots.append(0)
+                    self._hardware_runtime.append(0.0)
                 return fids
 
         # Check if the reward method exists in the dictionary
+        last_input = (
+            self.config.execution_config.dfe_precision
+            if self.config.dfe
+            else self.baseline_circuits[self.trunc_index]
+        )
         self._pubs = self.config.reward_config.get_reward_pubs(
-            qc, params, self.target, self.backend_info, self.config.execution_config
+            qc,
+            params,
+            self.target,
+            self.backend_info,
+            self.config.execution_config,
+            last_input,
         )
         total_shots = self.config.reward_config.total_shots
-        self._total_shots.append(total_shots)
-        if self.backend_info.instruction_durations is not None:
-            self._hardware_runtime.append(
-                get_hardware_runtime_single_circuit(
-                    qc,
-                    self.backend_info.instruction_durations.duration_by_name_qubits,
+        if update_env_history:
+            self._total_shots.append(total_shots)
+            if self.backend_info.instruction_durations is not None:
+                self._hardware_runtime.append(
+                    get_hardware_runtime_single_circuit(
+                        qc,
+                        self.backend_info.instruction_durations.duration_by_name_qubits,
+                    )
+                    * total_shots
                 )
-                * total_shots
-            )
-            print(
-                "Hardware runtime taken:",
-                np.round(sum(self.hardware_runtime) / 3600, 4),
-                "hours ",
-                np.round(sum(self.hardware_runtime) / 60, 4),
-                "min ",
-                np.round(sum(self.hardware_runtime) % 60, 4),
-                "seconds",
-            )
+                print(
+                    "Hardware runtime taken:",
+                    np.round(sum(self.hardware_runtime) / 3600, 4),
+                    "hours ",
+                    np.round(sum(self.hardware_runtime) / 60, 4),
+                    "min ",
+                    np.round(sum(self.hardware_runtime) % 60, 4),
+                    "seconds",
+                )
 
         counts = (
             self._session_counts
@@ -250,27 +263,10 @@ class BaseQuantumEnvironment(ABC, Env):
                 [pub_result.data.evs for pub_result in pub_results], axis=0
             ) / len(self.config.reward_config.observables)
         else:
-
             if self.config.reward_method == "xeb":
                 # TODO: Implement XEB reward computation using Sampler
                 raise NotImplementedError("XEB reward computation not implemented yet")
             else:
-                # TODO: Switch to causal cone qubits only
-
-                # pub_counts = [
-                #     [pub_result.data.meas.get_counts(i) for i in range(self.batch_size)]
-                #     for pub_result in pub_results
-                # ]
-
-                # survival_probability = [
-                #     np.array(
-                #         [
-                #             count.get("0" * qc.num_qubits, 0) / self.n_shots
-                #             for count in counts
-                #         ]
-                #     )
-                #     for counts in pub_counts
-                # ]
                 pub_data = [
                     [
                         pub_result.data.meas[i].postselect(
