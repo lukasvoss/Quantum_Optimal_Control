@@ -2,10 +2,15 @@ import os
 import sys
 import gzip
 import pickle
-from typing import Dict, Tuple, Union
+import datetime
+import smtplib
+from email.message import EmailMessage
+from typing import Dict, Tuple
 
-project_path = "/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/"
+# project_path = "/Users/lukasvoss/Documents/Master Wirtschaftsphysik/Masterarbeit Yale-NUS CQT/Quantum_Optimal_Control/"
+project_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 sys.path.append(project_path)
+
 import argparse
 import numpy as np
 import matplotlib.pyplot as plt
@@ -44,6 +49,85 @@ from rl_qoc.hpo.hpo_config import (
 )
 from rl_qoc.hpo.hyperparameter_optimization import HyperparameterOptimizer
 
+# Import the Google Cloud Storage client
+from google.cloud import storage
+
+#############################################
+# New functions for file upload & notification
+#############################################
+
+def upload_file_to_gcs(file_path: str, bucket_name: str, destination_blob_name: str) -> str:
+    """
+    Uploads a file to a GCS bucket and returns a signed URL valid for 1 year (52 weeks).
+    """
+    bucket = get_or_create_bucket(bucket_name)
+    blob = bucket.blob(destination_blob_name)
+    
+    blob.upload_from_filename(file_path)
+    
+    # Generate a signed URL valid for 1 hour (adjust expiration as needed)
+    signed_url = blob.generate_signed_url(expiration=datetime.timedelta(weeks=52))
+    return signed_url
+
+def send_email(subject: str, body: str, from_email: str, to_email: str,
+               smtp_server: str = 'smtp.gmail.com', smtp_port: int = 587,
+               login: str = None, password: str = None):
+    """
+    Sends an email notification with the given subject and body.
+    """
+    msg = EmailMessage()
+    msg.set_content(body)
+    msg['Subject'] = subject
+    msg['From'] = from_email
+    msg['To'] = to_email
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(login, password)
+        server.send_message(msg)
+
+def get_or_create_bucket(bucket_name: str):
+    storage_client = storage.Client()
+    bucket = storage_client.lookup_bucket(bucket_name)
+    if bucket is None:
+        print(f"Bucket {bucket_name} not found. Creating bucket...")
+        bucket = storage_client.create_bucket(bucket_name)
+    return bucket
+
+def notify_completion(results_file_path: str):
+    """
+    Uploads the results file to GCS, generates a signed URL, and sends an email notification.
+    """
+    # Replace these placeholder values with your actual configuration
+    bucket_name = "rl_training_results"
+    from_email = "rlqoc.project@gmail.com"
+    to_email = ["lukas_voss@icloud.com", "arthur.strauss@u.nus.edu"]
+    smtp_server = "smtp.gmail.com"
+    smtp_port = 587
+    login = "rlqoc.project@gmail.com"
+    password = os.getenv("EMAIL_PASSWORD") # fqjy talu uylo buti
+
+    print("results_file_path: ", results_file_path, "type: ", type(results_file_path))
+    destination_blob_name = os.path.basename(results_file_path)
+    signed_url = upload_file_to_gcs(results_file_path, bucket_name, destination_blob_name)
+    
+    subject = "Test Email: RL Training Run Finished - Results Available on Google Cloud Bucket (Automated email by LV)"
+    body = (f"Your HPO for the {params['reward_type'].upper()} Reward completed: {params['num_hpo_trials']} trials with {params['total_updates']} update steps each.\n\n"
+            f"Download your results file here (link valid for 1 year): \n{signed_url}")
+    
+    send_email(subject, body, from_email, to_email, smtp_server, smtp_port, login, password)
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Run RL training for quantum control.")
+    parser.add_argument(
+        "--reward_type",
+        type=str,
+        choices=["state", "fidelity", "cafe", "orbit", "channel"],
+        required=True,
+        help="Type of reward to use for training the RL agent.",
+    )
+    args = parser.parse_args()
+    return args
 
 def setup_quantum_circuit(
     num_qubits: int,
@@ -187,7 +271,7 @@ def prepare_hpo_config(
     path_hpo_config = (
         f"{project_path}/gate_level/spillover_noise_use_case/noise_hpo_config.yaml"
     )
-    save_results_path = "hpo_results_feb2025"
+    save_results_path = f"gate_level/spillover_noise_use_case/hpo_results_feb2025_numpy-seed-{seed}"
 
     # Hardware penalty weights are currenlty not used as the cost function is the infidelity (see HPO class for reference)
     experimental_penalty_weights = HardwarePenaltyWeights(
@@ -227,7 +311,8 @@ def run_hpo_training(
     training_results = hpo_engine.optimize_hyperparameters(
         training_config=ppo_config, train_function_settings=train_settings
     )
-    return training_results
+
+    return training_results, hpo_engine.saved_results_path
 
 
 def run_standard_training(
@@ -243,8 +328,13 @@ def run_standard_training(
 def post_process_and_save(
     training_results: Dict, params: Dict, gamma_matrix: np.ndarray
 ):
-    training_results["reward_type"] = params["reward_type"]
-    training_results["gamma_matrix"] = gamma_matrix
+    # if isinstance(training_results, list):
+    #     for result in training_results:
+    #         result["reward_type"] = params["reward_type"]
+    #         result["gamma_matrix"] = gamma_matrix
+    # elif isinstance(training_results, dict):
+    #     training_results["reward_type"] = params["reward_type"]
+    #     training_results["gamma_matrix"] = gamma_matrix
 
     # Plot learning curve
     # plot_learning_curve(q_env)
@@ -299,9 +389,13 @@ def train_rl_agent(
     )
 
     if training_settings["hpo_mode"]:
-        run_hpo_training(env, ppo_agent, ppo_config, train_settings, training_settings)
+        training_results, results_file_path = run_hpo_training(env, ppo_agent, ppo_config, train_settings, training_settings)
+        post_process_and_save(training_results, params, gamma_matrix)
+        # Notify via email that the run is complete and include the signed download link.
+        notify_completion(results_file_path)
     else:
         training_results = run_standard_training(ppo_agent, ppo_config, train_settings)
+        results_file_path = params["saving_file_name"] + ".pickle.gz"
         post_process_and_save(training_results, params, gamma_matrix)
 
 
@@ -334,6 +428,8 @@ def main(params: Dict) -> None:
 
 
 if __name__ == "__main__":
+    args = parse_arguments()
+
     # Pass arguments through main function
     seed = 42
     np.random.seed(seed=seed)
@@ -359,17 +455,15 @@ if __name__ == "__main__":
     }
     training_settings = {
         "total_updates": 10,
-        "reward_type": "fidelity",  # "state", "fidelity", "cafe", "orbit", "channel"
-        "target_fidelities": [0.999],
+        "reward_type": args.reward_type,  # "state", "fidelity", "cafe", "orbit", "channel"
+        "target_fidelities": [0.999, 0.9999],
         "lookback_window": 20,
         "anneal_learning_rate": True,
         "plot_real_time": False,
-        "hpo_mode": False,
         "clear_history": True,
         "log_training_wandb": True,  # TODO: Set to True to log training metrics to wandb dashboard (online)
         "print_debug": False,
         "num_prints": 10,
-        "clear_history": True,
     }
     # TODO: Configure HPO settings
     training_settings["hpo_mode"] = True

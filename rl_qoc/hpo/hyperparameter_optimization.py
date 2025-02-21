@@ -276,7 +276,7 @@ class HyperparameterOptimizer:
                 "custom_cost_value": self.best_trial.values[0],
                 "penalty_weights": self.hardware_penalty_weights,
             }
-            pickle_file_name = os.path.join(
+            self._pickle_file_name = os.path.join(
                 self.save_results_path, self._generate_filename()
             )
             # Only save if best_config not empty
@@ -287,10 +287,10 @@ class HyperparameterOptimizer:
                     )
                 else:
                     data_to_save = [best_config]
-                save_to_pickle(data_to_save, pickle_file_name)
+                save_to_pickle(data_to_save, self.saved_results_path)
                 self.data = data_to_save
                 logging.warning(
-                    f"{'All trials have' if self.saving_mode == 'all' else 'Best trial has'} been saved to {pickle_file_name}."
+                    f"{'All trials have' if self.saving_mode == 'all' else 'Best trial has'} been saved to {self.saved_results_path}."
                 )
             else:
                 logging.warning("WARNING: No best trial data to save.")
@@ -359,6 +359,10 @@ class HyperparameterOptimizer:
     @property
     def num_hpo_trials(self):
         return self.hpo_config.num_trials
+    
+    @property
+    def saved_results_path(self):
+        return self._pickle_file_name
 
     @property
     def hardware_penalty_weights(self):
